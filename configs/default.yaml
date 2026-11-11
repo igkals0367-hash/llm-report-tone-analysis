@@ -1,0 +1,41 @@
+ingest:
+  start_date: 2023-01-01
+  sleep_sec: 0.5            # 네이버 요청 간격(초)
+  krx_sleep_sec: 1.0        # KRX 호출 간격(초)
+universe:
+  top_n: 200
+pairs:
+  max_gap_months: 6
+  search_from: 2023-01-01
+periods:
+  baseline_start: 2023-07-01
+  baseline_end: 2024-06-30
+  validation_start: 2024-07-01
+model:
+  name: snunlp/KR-FinBert-SC
+  revision: null            # 처음 실행할 때 커밋 해시를 적어 고정
+  max_tokens: 512
+grade:
+  lower_pct: 33.3
+  upper_pct: 66.7
+h1:
+  window_months: 3          # Step 7 점검에서 4로 바뀔 수 있음
+h2:
+  horizon_days: 60
+  aux_horizon_days: 20
+  winsor_pct: 1
+  aux_winsor_pct: 5
+permutation:
+  n: 1000
+  seed: 20261111
+  alpha: 0.05
+backtest:
+  long_weight: 0.5
+  short_weight: 0.5
+  holding_days: 60
+  alt_holding_days: [20, next_report]
+  cost_roundtrip: 0.003
+  borrow_rate_annual: 0.06
+short_ban:
+  start: 2023-11-06
+  end: 2025-03-30
