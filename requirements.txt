@@ -1,0 +1,13 @@
+pandas
+pyarrow
+numpy
+requests
+python-dotenv
+pyyaml
+pykrx
+finance-datareader
+transformers
+torch
+matplotlib
+tqdm
+pytest
