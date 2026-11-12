@@ -24,6 +24,12 @@ def test_score_rules():
     assert np.array_equal(got, want, equal_nan=True)
 
 
+
+def test_locked_rule_excludes_any_missing():     # 잠근 원래 규칙(16장): N에 하나라도 없으면 제외
+    got = score_change([4, 4, 4], [100, 100, 100], [2, 4, 4], [np.nan, 90, np.nan], missing="exclude")
+    assert np.array_equal(got, [np.nan, -1.0, np.nan], equal_nan=True)
+
+
 def test_next_report_matches_precheck():         # Step 7과 같은 '다음 리포트' 정의
     reports = pd.DataFrame({"nid": [1, 2, 3, 4], "broker_code": ["a", "a", "b", "a"], "item_code": ["X"] * 4,
                             "write_date": pd.to_datetime(["2024-01-10", "2024-01-10", "2024-02-01", "2024-03-01"])})

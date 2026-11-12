@@ -327,6 +327,12 @@ def section_step9():
              table(pd.DataFrame(rows).T.rename_axis("등급")),
              table(pd.Series({"차이 (C − A)": f"{r['diff']:+.4f}", "p": f"{r['p']:.4f}",
                               "판정": f"H1 {r['verdict']}"}, name="H1").to_frame())]
+    if "locked_rule" in r:                                       # 민감도: 잠근 원래 규칙 (16장)
+        lr = r["locked_rule"]
+        parts.append(table(pd.Series({"점수 매김 A / C": f"{lr['summary']['A']['점수 매김']:,} / "
+                                                         f"{lr['summary']['C']['점수 매김']:,}",
+                                      "차이 (C − A)": f"{lr['diff']:+.4f}", "p": f"{lr['p']:.4f}"},
+                                     name="민감도: 잠근 원래 규칙 (판정에 안 씀)").to_frame()))
     fig, ax = axes(8, 3.2)                                       # 하향·유지·상향 비율과 Wilson 95% 구간
     kinds = [("down", "하향"), ("same", "유지"), ("up", "상향")]
     for j, (g, color) in enumerate([("A", BLUE), ("C", ORANGE)]):
