@@ -5,6 +5,7 @@ import base64
 import datetime as dt
 import html
 import io
+import json
 import pathlib
 import subprocess
 import traceback
@@ -90,9 +91,14 @@ def monthly_bar(dates, title, by=None):
     return img(fig)
 
 
-def hist(values, title, xlabel, bins=40, range_=None):
+def hist(values, title, xlabel, bins=40, range_=None, vlines=()):
     fig, ax = axes()
     ax.hist(values, bins=bins, range=range_, color=BLUE, edgecolor=SURFACE, linewidth=0.8)
+    for i, (x, label) in enumerate(vlines):                      # (위치, 이름): 기준선. 두 개면 첫째 이름은 왼쪽에
+        left = i == 0 and len(vlines) > 1
+        ax.axvline(x, color=ORANGE, lw=1.5, ls="--")
+        ax.annotate(label, (x, ax.get_ylim()[1] * 0.92), xytext=(-5 if left else 5, 0), textcoords="offset points",
+                    color=ORANGE, fontsize=9, ha="right" if left else "left")
     ax.set_title(f"{title} (n={len(values):,})", loc="left", fontsize=10)
     ax.set_xlabel(xlabel, fontsize=9)
     return img(fig)
@@ -255,7 +261,53 @@ def section_step6():
                             + hist(b, "기준선 톤 변화 = 톤(R) - 톤(P)", "톤 변화", range_=(-2, 2)))
 
 
-SECTIONS = [section_status, section_step1, section_step2, section_step3, section_step4, section_step5, section_step6]
+def section_step7():
+    """Step 7 고정 전 점검: 가장 최근 runs/*_precheck의 판정과 다음 리포트까지 걸린 날."""
+    found = sorted(pathlib.Path("runs").glob("*_precheck/precheck.json"))
+    if not found:
+        return None
+    r = json.loads(found[-1].read_text(encoding="utf-8"))
+    w = r["h1_window_months"]
+    t = pd.DataFrame({"값": [f"{r['h1_share_validation']:.1%}",
+                            f"{r['broker_top_sum']['A']:.1%} / {r['broker_top_sum']['C']:.1%}",
+                            " / ".join(f"{r['short_shares'][g]:.1%}" for g in "ABC")],
+                      "판정": [f"{w}개월로 고정" if r["h1_window_ok"] else "기간을 넓힘",
+                             "쏠림 있음" if r["broker_flag"] else "쏠림 없음",
+                             "몰림 있음" if r["short_flag"] else "몰림 없음"]},
+                     index=[f"검증 R 중 {w}개월 안에 다음 리포트", "A / C 상위 증권사 비중 합",
+                            "짧은 요약 쌍 비율 A / B / C"])
+    parts = [f'<p class="note">기록: {html.escape(str(found[-1].parent))} · 임시 컷오프 '
+             f'{r["cutoffs"][0]:.4f} / {r["cutoffs"][1]:.4f} (Step 8에서 고정)</p>', table(t)]
+    if F["pairs"].exists() and F["reports"].exists():
+        from src.analysis.precheck import next_report_date             # 다음 리포트는 날짜만 읽는다
+        p = pd.read_parquet(F["pairs"], columns=["r_nid", "write_date", "period"])
+        rep = pd.read_parquet(F["reports"], columns=["nid", "write_date", "broker_code", "item_code"])
+        gap = (next_report_date(p, rep) - p["write_date"]).dt.days[p["period"] == "validation"].dropna()
+        parts.append(hist(gap, "검증 R: 다음 리포트까지 걸린 날", "일", bins=40, range_=(0, 400),
+                          vlines=[(w * 30.4, f"{w}개월")]))
+    return "Step 7 고정 전 점검", "".join(parts)
+
+
+def section_step8():
+    """Step 8 분류 고정: 잠긴 컷오프와 검증 표본의 등급 (고정 뒤에만 보인다)."""
+    from src.analysis.guard import require_lock                    # 등급 파일은 고정 뒤에만 읽는다 (18장)
+    try:
+        rec = require_lock()
+    except RuntimeError:
+        return None
+    lock_t = pd.Series({k: rec[k] for k in ["lower", "upper", "baseline_n", "h1_window_months", "locked_at",
+                                            "git_commit", "model_revision"]}, name="cutoffs.json").astype(str)
+    parts = [table(lock_t.to_frame())]
+    g = pd.read_parquet("data/processed/grades.parquet")
+    n = g["grade"].value_counts().reindex(["A", "B", "C"], fill_value=0)
+    parts.append(table(pd.DataFrame({"쌍": n, "비율": (n / n.sum()).map("{:.1%}".format)}).rename_axis("등급")))
+    cuts = [(rec["lower"], f"lower {rec['lower']:.4f}"), (rec["upper"], f"upper {rec['upper']:.4f}")]
+    parts.append(hist(g["tone_change"], "검증 톤 변화와 잠긴 컷오프", "톤 변화", range_=(-2, 2), vlines=cuts))
+    return "Step 8 분류 고정", "".join(parts)
+
+
+SECTIONS = [section_status, section_step1, section_step2, section_step3, section_step4, section_step5, section_step6,
+            section_step7, section_step8]
 
 
 def kpis():
