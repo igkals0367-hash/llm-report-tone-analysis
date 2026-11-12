@@ -39,3 +39,7 @@ backtest:
 short_ban:
   start: 2023-11-06
   end: 2025-03-30
+pairs:
+  max_gap_months: 6
+  search_from: 2023-01-01
+  adj_tol: 0.001            # 기준가 조정일 판정: |원래 종가 변화 − ret| > 이 값 (16장)
