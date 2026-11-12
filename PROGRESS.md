@@ -66,3 +66,5 @@
 | 2026-11-12 | 재현성 확인은 무작위 1,000문장을 같은 함수로 두 번 돌려 완전히 같은지로 함 | 전체를 두 번 돌리면 시간이 두 배 | 7장 Step 5 |
 | 2026-11-13 | 톤 변화는 src/classify/change.py의 add_tone_change(pairs, tone)로 계산하고 python -m src.classify.change로 따로 실행. R·P 중 톤이 없는 쌍은 빼고, 다시 실행해도 열이 두 벌 생기지 않게 함 | 18장 함수 표에 톤 변화 함수가 없었고, tone.py에 넣으면 9분짜리 점수 매기기가 매번 다시 돎 | 18장 함수 표 |
 | 2026-11-13 | 기준선 톤 변화 히스토그램을 reports/figures/tone_change_baseline.png로 저장해 커밋 | 계획서의 '분포를 남긴다'를 파일로 남겨 README·발표에 씀. 원문 없이 숫자 분포만 담김 | 7장 Step 6 |
+| 2026-11-13 | 개발용 대시보드 tools/dev_dashboard.py를 둠: data/를 읽기만 하고 data/dashboard.html 한 장을 만듦. 원문 없이 건수·분포만, 분류 고정 전에는 결과 데이터 칸 없음. Step을 마칠 때마다 그 Step의 칸을 추가해 같은 커밋에 넣음 | 개발하면서 수집·필터·분포를 눈으로 보고, Step 7 점검을 그 위에서 하려고. src/는 tools/를 부르지 않아 결과에 영향 없음 | 11장 레포 구조, 16장 |
+| 2026-11-13 | build_pairs가 거르는 단계마다 남은 수를 data/processed/pairs_funnel.csv로도 저장 | 대시보드가 build_pairs를 다시 부르면 pairs.parquet을 새로 써서 톤 변화 열이 지워짐. 계산은 그대로 | 18장 데이터 파일 표 |

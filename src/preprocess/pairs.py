@@ -54,6 +54,7 @@ def load_sectors():
 REPORTS = pathlib.Path("data/processed/reports.parquet")
 UNIVERSE = pathlib.Path("data/processed/universe.parquet")
 OUT = pathlib.Path("data/processed/pairs.parquet")
+FUNNEL = pathlib.Path("data/processed/pairs_funnel.csv")
 
 
 @lru_cache(maxsize=None)
@@ -148,6 +149,7 @@ def build_pairs(reports, universe, cfg):
     pairs = pd.DataFrame(rows)
     OUT.parent.mkdir(parents=True, exist_ok=True)
     pairs.to_parquet(OUT, index=False)
+    pd.DataFrame(counts).rename_axis("stage").to_csv(FUNNEL, encoding="utf-8")   # 거르는 단계마다 남은 수 (대시보드용)
     return pairs, counts, v_end
 
 
