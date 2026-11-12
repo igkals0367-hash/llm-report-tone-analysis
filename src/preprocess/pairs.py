@@ -1,6 +1,8 @@
 """Step 3: 표본 쌍 만들기 (6장).
 사용: python -m src.preprocess.pairs
 """
+import pathlib
+
 import numpy as np
 import pandas as pd
 
@@ -27,3 +29,23 @@ def adjusted_between(adj, item_code, start, end):
         return False
     i = np.searchsorted(days, np.datetime64(start), side="left")
     return bool(i < len(days) and days[i] <= np.datetime64(end))
+
+SECTORS = pathlib.Path("configs/sectors.csv")
+OVERRIDES = pathlib.Path("configs/sector_overrides.csv")
+KRX_SECTORS = pathlib.Path("data/raw/krx/sectors.parquet")
+
+
+def load_sectors():
+    """종목코드 → 업종 큰 분류 (4장). 업종 표에 없는 종목은 sector_overrides.csv에서 가져온다."""
+    krx = pd.read_parquet(KRX_SECTORS)
+    groups = pd.read_csv(SECTORS, encoding="utf-8")
+    unknown = set(krx["krx_sector"]) - set(groups["krx_sector"])
+    if unknown:
+        raise ValueError(f"configs/sectors.csv에 없는 KRX 업종: {unknown}")
+    s = pd.Series(krx["krx_sector"].map(dict(zip(groups["krx_sector"], groups["sector"]))).to_numpy(),
+                  index=krx["item_code"])
+    over = pd.read_csv(OVERRIDES, encoding="utf-8", dtype={"item_code": str})
+    both = set(over["item_code"]) & set(s.index)
+    if both:
+        raise ValueError(f"업종 표에 이미 있는데 오버라이드에도 있는 종목: {both}")
+    return pd.concat([s, over.set_index("item_code")["sector"]])
