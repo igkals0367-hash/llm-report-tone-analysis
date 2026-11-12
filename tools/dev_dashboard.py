@@ -12,6 +12,7 @@ import traceback
 
 import matplotlib
 matplotlib.use("Agg")
+import matplotlib.ticker
 import matplotlib.pyplot as plt
 import pandas as pd
 import pyarrow.parquet as pq
@@ -306,8 +307,46 @@ def section_step8():
     return "Step 8 분류 고정", "".join(parts)
 
 
+def section_step9():
+    """Step 9 H1: 다음 리포트의 하향·유지·상향 비율과 라벨 섞기 검정 (가장 최근 runs/*_h1)."""
+    from src.analysis.guard import require_lock                    # 결과는 고정 뒤에만 (18장)
+    try:
+        require_lock()
+    except RuntimeError:
+        return None
+    found = sorted(pathlib.Path("runs").glob("*_h1/h1.json"))
+    if not found:
+        return None
+    r = json.loads(found[-1].read_text(encoding="utf-8"))
+    sm = r["summary"]
+    rows = {g: {"R": sm[g]["R"], "점수 매김": sm[g]["점수 매김"], "다음 리포트 없음": sm[g]["no_next"],
+                "기준가 조정": sm[g]["adjusted"], "비교 불가": sm[g]["not_comparable"],
+                "하향": f"{sm[g]['down']:.1%}", "유지": f"{sm[g]['same']:.1%}", "상향": f"{sm[g]['up']:.1%}",
+                "평균 점수": f"{sm[g]['mean']:+.4f}"} for g in ["A", "C"]}
+    parts = [f'<p class="note">기록: {html.escape(str(found[-1].parent))}</p>',
+             table(pd.DataFrame(rows).T.rename_axis("등급")),
+             table(pd.Series({"차이 (C − A)": f"{r['diff']:+.4f}", "p": f"{r['p']:.4f}",
+                              "판정": f"H1 {r['verdict']}"}, name="H1").to_frame())]
+    fig, ax = axes(8, 3.2)                                       # 하향·유지·상향 비율과 Wilson 95% 구간
+    kinds = [("down", "하향"), ("same", "유지"), ("up", "상향")]
+    for j, (g, color) in enumerate([("A", BLUE), ("C", ORANGE)]):
+        xs = [i + (j - 0.5) * 0.36 for i in range(3)]
+        ys = [sm[g][k] for k, _ in kinds]
+        err = [[y - sm[g][k + "_ci"][0] for y, (k, _) in zip(ys, kinds)],
+               [sm[g][k + "_ci"][1] - y for y, (k, _) in zip(ys, kinds)]]
+        ax.bar(xs, ys, width=0.34, color=color, label=g, yerr=err, ecolor=SLATE, capsize=3)
+    ax.set_xticks(range(3), [n for _, n in kinds])
+    ax.yaxis.set_major_formatter(matplotlib.ticker.PercentFormatter(1.0))
+    ax.legend(frameon=False, fontsize=8)
+    ax.set_title("다음 리포트의 변화 (점수 매긴 리포트 중 비율, 95% 구간)", loc="left", fontsize=10)
+    parts.append(img(fig))
+    parts.append(hist(pd.Series(r["shuffled"]), "라벨을 섞었을 때의 차이 (C - A)", "차이", bins=40,
+                      vlines=[(r["diff"], f"실제 {r['diff']:+.3f}")]))
+    return "Step 9 H1", "".join(parts)
+
+
 SECTIONS = [section_status, section_step1, section_step2, section_step3, section_step4, section_step5, section_step6,
-            section_step7, section_step8]
+            section_step7, section_step8, section_step9]
 
 
 def kpis():
