@@ -1,0 +1,17 @@
+opinion_text,opinion_rank
+StrongBuy,5
+강력매수,5
+Buy,4
+매수,4
+OutPerform,3
+Hold,2
+중립,2
+MarketPerform,2
+Neutral,2
+MarketUnderPerform,1
+UnderPerform,1
+Reduce,1
+Sell,0
+매도,0
+없음,
+투자의견없음,
