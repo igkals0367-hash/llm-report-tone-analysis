@@ -13,8 +13,9 @@ periods:
   validation_start: 2024-07-01
 model:
   name: snunlp/KR-FinBert-SC
-  revision: null            # 처음 실행할 때 커밋 해시를 적어 고정
+  revision: "f8586286cc3161fb648e9fee09a456069fd846d0"   # 2026-11-12 고정 (Step 5)
   max_tokens: 512
+  batch_size: 32            # 한 번에 넣는 문장 수 (Step 5)
 grade:
   lower_pct: 33.3
   upper_pct: 66.7
