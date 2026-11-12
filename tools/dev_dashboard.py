@@ -236,7 +236,7 @@ def section_step5():
         parts.append(barh(lab, f"문장별 가장 큰 라벨 (문장 {len(pr):,}개)"))
     t = pd.read_parquet(F["tone"], columns=["tone", "model_revision"])
     parts.append(table(t["tone"].describe().round(3).rename("리포트 톤").to_frame()))
-    parts.append(hist(t["tone"], "리포트 톤 = 문장별 (긍정 − 부정)의 평균", "톤", range_=(-1, 1)))
+    parts.append(hist(t["tone"], "리포트 톤 = 문장별 (긍정 - 부정)의 평균", "톤", range_=(-1, 1)))
     parts.append(f'<p class="note">모델 리비전: {html.escape(", ".join(t["model_revision"].unique()))}</p>')
     return "Step 5 톤 점수", "".join(parts)
 
@@ -252,7 +252,7 @@ def section_step6():
     stats = b.describe(percentiles=[0.05, 0.25, 0.5, 0.75, 0.95]).round(3)
     stats["정확히 0 비율"] = round((b == 0).mean(), 3)
     return "Step 6 톤 변화", (table(stats.rename("기준선 톤 변화").to_frame())
-                            + hist(b, "기준선 톤 변화 = 톤(R) − 톤(P)", "톤 변화", range_=(-2, 2)))
+                            + hist(b, "기준선 톤 변화 = 톤(R) - 톤(P)", "톤 변화", range_=(-2, 2)))
 
 
 SECTIONS = [section_status, section_step1, section_step2, section_step3, section_step4, section_step5, section_step6]
