@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 
 from src.backtest.engine import run, summarize
+from src.backtest.verify import SWAP, swap_check
 from src.strategy.decide import NEXT_REPORT, decide
 from src.strategy.store import Store
 
@@ -103,3 +104,12 @@ def test_costs_only_lower_returns():
     assert (res["ret_net"] <= res["ret_gross"] + 1e-12).all()
     s = summarize(res, CFG)
     assert s["net"]["total"] < s["gross"]["total"] and s["gross"]["mdd"] <= 0
+
+
+def test_swapping_a_and_c_mirrors_the_sides():   # 16장: 엔진은 A와 C를 대칭으로 다룬다
+    reports, daily, universe, grades = world()
+    st = Store(reports, daily, universe)
+    a = run(DAYS[0], DAYS[-1], CFG, grades, st, enforce_ban=False)
+    b = run(DAYS[0], DAYS[-1], CFG, grades.assign(grade=grades["grade"].map(SWAP)), st, enforce_ban=False)
+    assert swap_check(a, b)[0]
+    assert not swap_check(a, a)[0]               # 맞바꾸지 않은 실행은 거울이 아니다
