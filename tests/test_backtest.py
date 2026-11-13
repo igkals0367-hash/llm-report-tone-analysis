@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 
 from src.backtest.engine import run, summarize
-from src.backtest.verify import SWAP, swap_check
+from src.backtest.verify import SWAP, gross_mirror, swap_check
 from src.strategy.decide import NEXT_REPORT, decide, to_weights
 from src.strategy.store import Store
 
@@ -133,3 +133,12 @@ def test_cap_changes_nothing_when_both_sides_have_ten_or_more():
     assert full.any() and few.any()
     assert np.allclose(a.loc[full, "ret_gross"], b.loc[full, "ret_gross"])
     assert not np.allclose(a.loc[few, "ret_gross"], b.loc[few, "ret_gross"])
+
+
+def test_swap_mirrors_gross_returns_with_cap():  # 16장 추가 분석: 상한을 켜도 A와 C를 대칭으로 다룬다
+    reports, daily, universe, grades = world()
+    st = Store(reports, daily, universe)
+    a = run(DAYS[0], DAYS[-1], CFG, grades, st, enforce_ban=False, cap=0.05)
+    b = run(DAYS[0], DAYS[-1], CFG, grades.assign(grade=grades["grade"].map(SWAP)), st, enforce_ban=False, cap=0.05)
+    assert gross_mirror(a, b)[0]
+    assert not gross_mirror(a, a)[0]
