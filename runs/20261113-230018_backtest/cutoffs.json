@@ -1,0 +1,10 @@
+{
+  "model": "snunlp/KR-FinBert-SC",
+  "model_revision": "f8586286cc3161fb648e9fee09a456069fd846d0",
+  "lower": -0.16352996172963347,
+  "upper": 0.2097948567048466,
+  "baseline_n": 1228,
+  "h1_window_months": 3,
+  "locked_at": "2026-11-13T07:00:52",
+  "git_commit": "de50e5c1be880db0780503d0754771bc0299632a"
+}
