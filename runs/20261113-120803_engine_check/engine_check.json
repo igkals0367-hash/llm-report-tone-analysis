@@ -1,0 +1,131 @@
+{
+ "pass": false,
+ "zero": false,
+ "same": true,
+ "mean_spread": -0.1041828867444016,
+ "se_spread": 0.044137800226940783,
+ "runs": [
+  {
+   "long_side": -0.141533,
+   "short_side": 0.023291,
+   "spread": -0.107385,
+   "gross": -0.065483
+  },
+  {
+   "long_side": -0.110205,
+   "short_side": -0.089101,
+   "spread": -0.183123,
+   "gross": -0.097022
+  },
+  {
+   "long_side": -0.09378,
+   "short_side": -0.112689,
+   "spread": -0.183402,
+   "gross": -0.098424
+  },
+  {
+   "long_side": -0.034463,
+   "short_side": 0.125984,
+   "spread": 0.068454,
+   "gross": 0.036392
+  },
+  {
+   "long_side": -0.005541,
+   "short_side": 0.229494,
+   "spread": 0.223953,
+   "gross": 0.113264
+  },
+  {
+   "long_side": 0.003707,
+   "short_side": 0.116991,
+   "spread": 0.097631,
+   "gross": 0.052382
+  },
+  {
+   "long_side": -0.158738,
+   "short_side": 0.035427,
+   "spread": -0.0889,
+   "gross": -0.057381
+  },
+  {
+   "long_side": -0.162364,
+   "short_side": 0.065834,
+   "spread": -0.091445,
+   "gross": -0.0494
+  },
+  {
+   "long_side": -0.168838,
+   "short_side": -0.056878,
+   "spread": -0.235124,
+   "gross": -0.115664
+  },
+  {
+   "long_side": -0.319297,
+   "short_side": -0.03651,
+   "spread": -0.345021,
+   "gross": -0.164974
+  },
+  {
+   "long_side": -0.153582,
+   "short_side": -0.060276,
+   "spread": -0.192356,
+   "gross": -0.107575
+  },
+  {
+   "long_side": -0.262827,
+   "short_side": -0.184555,
+   "spread": -0.427557,
+   "gross": -0.212742
+  },
+  {
+   "long_side": -0.127112,
+   "short_side": 0.135429,
+   "spread": 0.063859,
+   "gross": 0.01567
+  },
+  {
+   "long_side": -0.094896,
+   "short_side": 0.089697,
+   "spread": 0.015812,
+   "gross": 0.0005
+  },
+  {
+   "long_side": -0.163098,
+   "short_side": 0.091297,
+   "spread": -0.084812,
+   "gross": -0.05145
+  },
+  {
+   "long_side": 0.112074,
+   "short_side": 0.248729,
+   "spread": 0.326392,
+   "gross": 0.182909
+  },
+  {
+   "long_side": -0.162646,
+   "short_side": -0.106767,
+   "spread": -0.239452,
+   "gross": -0.123025
+  },
+  {
+   "long_side": -0.128887,
+   "short_side": -0.073973,
+   "spread": -0.225926,
+   "gross": -0.10723
+  },
+  {
+   "long_side": -0.285274,
+   "short_side": -0.107827,
+   "spread": -0.417268,
+   "gross": -0.187267
+  },
+  {
+   "long_side": -0.140303,
+   "short_side": 0.04874,
+   "spread": -0.057987,
+   "gross": -0.032726
+  }
+ ],
+ "commit": "224726a08a9c9a09bd33ebe1cb91285c45006dff",
+ "dirty": false
+}
