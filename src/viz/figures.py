@@ -1,6 +1,6 @@
-"""Step 12 결과 그림 5종 (10장). runs/의 가장 최근 H1·H2·백테스트 기록만 읽어 그린다.
+"""Step 12 결과 그림 5종과 추가 분석 그림 1종 (10장). runs/의 가장 최근 H1·H2·백테스트 기록만 읽어 그린다.
 결과를 새로 계산하지 않으므로 그림의 숫자가 기록과 어긋날 수 없다. 고정 뒤에만 돈다 (18장).
-사용: python -m src.viz.figures  →  reports/figures/fig1~fig5 *.png"""
+사용: python -m src.viz.figures  →  reports/figures/fig1~fig6 *.png"""
 import json
 import pathlib
 
@@ -17,7 +17,10 @@ from src.config import load_config
 RUNS = pathlib.Path("runs")
 OUT = pathlib.Path("reports/figures")
 A, C, N = "#4C72B0", "#C44E52", "#7B7485"                       # 부드러운 파랑·빨강, 중립은 회색
-INK, GRID, BAN = "#3C4A66", "#E2E6F0", "#F0F4FA"
+INK, GRID, BAN, WIND = "#3C4A66", "#E2E6F0", "#EEF2F8", "#F7F1E6"   # 음영: 공매도 금지, 청산 구간
+LONG, SHORT = "#4DAF6E", "#B2373D"                                    # 백테스트의 롱(A)·숏(C): 초록·빨강, 밝기 차이로 색약에도 구분
+VERSION = {"ban": ("Short ban enforced (executable)", "#3A6EA5"),      # 백테스트 버전은 롱·숏 색과 겹치지 않게
+           "noban": ("Short ban ignored (hypothetical)", "#D98A2B")}
 plt.rcParams.update({"font.family": "DejaVu Sans", "axes.unicode_minus": False, "font.size": 9,
                      "text.color": INK, "axes.labelcolor": INK, "xtick.color": INK, "ytick.color": INK,
                      "axes.edgecolor": "#9AA3B5", "axes.titlesize": 10, "axes.titleweight": "bold",
@@ -63,13 +66,24 @@ def label_end(ax, x, y, text, color):
     ax.annotate(text, (x, y), xytext=(5, 0), textcoords="offset points", va="center", fontsize=8, color=color)
 
 
+def label_ends(ax, x, items, gap=0.08):
+    """선 끝 숫자들이 겹치지 않게 위아래로 벌려 단다. items: [(y, 글자, 색)], gap: 축 높이 대비 최소 간격."""
+    lo, hi = ax.get_ylim()
+    step, placed = (hi - lo) * gap, []
+    for y, text, color in sorted(items, key=lambda t: t[0]):
+        y = max(y, placed[-1] + step) if placed else y
+        placed.append(y)
+        ax.annotate(text, (x, y), xytext=(5, 0), textcoords="offset points", va="center", fontsize=8,
+                    color=color, fontweight="bold")
+
+
 def fig1_car(h2, src):
     """그림 1 (H2): 등급별 진입 후 누적 초과수익, 중립 참고선, 20거래일 지점."""
     cv, m, aux = h2["curves"], h2["main"], h2["aux_days"]
     fig, ax = plt.subplots(figsize=(8.5, 4.3))
     style(ax)
     for key, label, color, ls in [("A", "A (tone warmed)", A, "-"), ("C", "C (tone cooled)", C, "-"),
-                                  ("N", "Explicit neutral reports (reference)", N, "--")]:
+                                  ("N", "Explicit neutral reports (reference)", N, "-")]:
         y = cv[key]
         ax.plot(range(1, len(y) + 1), y, color=color, lw=2, ls=ls, label=label)
         label_end(ax, len(y), y[-1], f"{y[-1]:+.2%}", color)
@@ -143,57 +157,86 @@ def fig3_permutation(h1, h2, src):
     return save(fig, "fig3_permutation.png", src)
 
 
+def shade(ax, ban0, ban1, wind0, end, text=False, top=False):
+    """공매도 금지 기간과 청산 구간(마지막 신규 진입 다음 날부터 끝까지)을 칠한다 (16장)."""
+    ax.axvspan(ban0, ban1, color=BAN, zorder=0)
+    if wind0 is not None:
+        ax.axvspan(wind0, end, color=WIND, zorder=0)
+    if text:
+        for x0, x1, t in [(ban0, ban1, "Short-selling ban"), (wind0, end, "Wind-down")]:
+            if x0 is not None:
+                ax.text(x0 + (x1 - x0) / 2, 0.96 if top else 0.04, t, transform=ax.get_xaxis_transform(), ha="center",
+                        va="top" if top else "bottom",
+                        fontsize=7, color="#7B7485", bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.8, "pad": 1})
+
+
 def fig4_backtest(bt, chk, cfg, src):
-    """그림 4: 롱숏 백테스트 계좌(비용 전후, 공매도 금지 반영·무시), 낙폭, Long side·Short side."""
-    base = bt["holds"][0]
-    days = pd.to_datetime(bt["curves"][f"{base}|ban"]["date"])
+    """그림 4: 시장(유니버스 평균), 비용 전·후 누적 수익(공매도 금지 반영·무시), Long side·Short side (10장, 16장)."""
+    base, b = bt["holds"][0], cfg["backtest"]
+    cv, sm = bt["curves"], bt["summary"]
+    days = pd.to_datetime(cv[f"{base}|ban"]["date"])
     ban0 = max(pd.Timestamp(cfg["short_ban"]["start"]), days[0])
     ban1 = min(pd.Timestamp(cfg["short_ban"]["end"]), days[-1])
-    fig, axes = plt.subplots(3, 1, figsize=(8.5, 8.6), sharex=True, gridspec_kw={"height_ratios": [3, 1.6, 2.4]})
-    lines = [("ban", "gross", "Short ban enforced (executable), before costs", A, "-"),
-             ("ban", "net", "Short ban enforced (executable), after costs", A, ":"),
-             ("noban", "gross", "Short ban ignored (hypothetical), before costs", C, "-"),
-             ("noban", "net", "Short ban ignored (hypothetical), after costs", C, ":")]
-    for ax in axes:
+    w = sm[f"{base}|ban"].get("winddown_start")
+    wind0 = pd.Timestamp(w) if w else None
+    fig, axes = plt.subplots(4, 1, figsize=(8.5, 11), sharex=True, gridspec_kw={"height_ratios": [1.4, 2.2, 2.2, 2.2]})
+    for i, ax in enumerate(axes):
         style(ax)
-        ax.axvspan(ban0, ban1, color=BAN, zorder=0)
-    for ban, kind, label, color, ls in lines:
-        c = bt["curves"][f"{base}|{ban}"]
-        x, eq = pd.to_datetime(c["date"]), pd.Series(c[kind])
-        axes[0].plot(x, eq - 1, color=color, ls=ls, lw=1.8, label=label)
-        label_end(axes[0], x[-1], eq.iloc[-1] - 1, f"{eq.iloc[-1] - 1:+.1%}", color)
-        if kind == "net":
-            axes[1].plot(x, eq / eq.cummax() - 1, color=color, ls=ls, lw=1.5)
-    c = bt["curves"][f"{base}|noban"]
-    x = pd.to_datetime(c["date"])
-    for key, label, color in [("long_side", "Long side: A − market average", A), ("short_side", "Short side: market average − C", C)]:
-        axes[2].plot(x, c[key], color=color, lw=1.8, label=label)
-        label_end(axes[2], x[-1], c[key][-1], f"{c[key][-1]:+.1%}", color)
-    for ax in (axes[0], axes[2]):
-        ax.axhline(0, color="#9AA3B5", lw=0.8)
-    b = cfg["backtest"]
+        shade(ax, ban0, ban1, wind0, days[-1], text=(i == 0))
+        ax.yaxis.set_major_formatter(mtick.PercentFormatter(1.0, decimals=0))
+
+    mk = cv["market"]                                            # 시장: 유니버스 평균 (참고)
+    x, eq = pd.to_datetime(mk["date"]), pd.Series(mk["equity"]) - 1
+    axes[0].plot(x, eq, color=N, lw=1.8)
+    label_end(axes[0], x[-1], eq.iloc[-1], f"{eq.iloc[-1]:+.1%}", N)
     titles(axes[0], f"Backtest: long A / short C, {b['long_weight']:.0%} each, {base}-day holding",
-           f"Shaded: short-selling ban (shorts off in the executable version). Round-trip cost "
-           f"{b['cost_roundtrip']:.1%}, borrow {b['borrow_rate_annual']:.0%}/yr. Not used for the verdict.")
-    axes[0].legend(frameon=False, fontsize=7.5, loc="upper left", ncol=2)
-    axes[0].set_ylabel("Cumulative return")
-    axes[1].set_ylabel("Drawdown (after costs)")
-    axes[2].set_ylabel("Cumulative daily sum")
-    axes[2].legend(frameon=False, fontsize=7.5, loc="upper left")
+           "Top: market (universe average, top 200 equal-weighted) for reference only; the long-short strategy is not a "
+           "bet on market direction.\nShaded: short-selling ban (shorts off in the executable version) and wind-down "
+           "(no new signals after the validation period, holdings shrink). Not used for the verdict.")
+    axes[0].set_ylabel("Market")
+
+    for ax, kind, title in [(axes[1], "gross", "Before costs"), (axes[2], "net", "After costs")]:
+        items = []
+        for ver, (label, color) in VERSION.items():
+            c = cv[f"{base}|{ver}"]
+            x, eq = pd.to_datetime(c["date"]), pd.Series(c[kind]) - 1
+            ax.plot(x, eq, color=color, lw=1.8, label=label)
+            items.append((eq.iloc[-1], f"{label.split('(')[1][:-1]} {eq.iloc[-1]:+.1%}", color))
+        ax.axhline(0, color="#9AA3B5", lw=0.8)
+        label_ends(ax, x[-1], items)
+        ax.set_ylabel("Cumulative return")
+        if kind == "gross":                                      # 범례는 위 칸에만, 그래프 바깥 오른쪽 위에 둔다
+            ax.set_title(title, pad=8)
+            ax.legend(frameon=False, fontsize=7.5, loc="lower right", bbox_to_anchor=(1, 1.0), ncol=2)
+        else:
+            mdd = {v: sm[f"{base}|{v}"]["net"]["mdd"] for v in VERSION}
+            titles(ax, f"{title} (round-trip {b['cost_roundtrip']:.1%}, borrow {b['borrow_rate_annual']:.0%}/yr)",
+                   f"Max drawdown: executable {mdd['ban']:+.1%}, hypothetical {mdd['noban']:+.1%}.")
+
+    c = cv[f"{base}|noban"]
+    x = pd.to_datetime(c["date"])
+    items = []
+    for key, label, color, name in [("long_side", "Long side: A − market average", LONG, "Long"),
+                                    ("short_side", "Short side: market average − C", SHORT, "Short")]:
+        axes[3].plot(x, c[key], color=color, lw=1.8, label=label)
+        items.append((c[key][-1], f"{name} {c[key][-1]:+.1%}", color))
+    axes[3].axhline(0, color="#9AA3B5", lw=0.8)
+    label_ends(axes[3], x[-1], items)
+    axes[3].set_ylabel("Cumulative daily sum")
+    axes[3].legend(frameon=False, fontsize=7.5, loc="best")
     runs = pd.DataFrame(chk["runs"])
-    titles(axes[2], "Long side and Short side (signal-based, before costs)",
+    titles(axes[3], "Long side and Short side (signal-based, before costs)",
            f"Random-label baseline ({len(runs)} runs): Long side {runs['long_side'].mean():+.1%}, Short side "
            f"{runs['short_side'].mean():+.1%} on average, because the sample stocks as a group differed from the market.")
-    for ax in axes:
-        ax.yaxis.set_major_formatter(mtick.PercentFormatter(1.0, decimals=0))
-    fig.tight_layout()
+    fig.tight_layout(h_pad=1.2)
     return save(fig, "fig4_backtest.png", src)
 
 
-def fig5_checks(h2, src):
-    """그림 5 (점검, 판정에 쓰지 않음): 직전 20거래일 초과수익, 공매도 금지·가능 기간 곡선."""
-    fig, axes = plt.subplots(1, 2, figsize=(9.5, 3.8), gridspec_kw={"width_ratios": [1, 2]})
-    ax = axes[0]
+def fig5_checks(h2, cfg, src):
+    """그림 5 (점검, 판정에 쓰지 않음): 직전 20거래일 초과수익, 공매도 금지 기간과 그 뒤로 나눈 곡선 (두 칸)."""
+    fig = plt.figure(figsize=(11, 4.2))
+    gs = fig.add_gridspec(1, 3, width_ratios=[1, 1.45, 1.45], wspace=0.35)
+    ax = fig.add_subplot(gs[0])
     style(ax)
     ys = [h2["pre"]["A"], h2["pre"]["C"]]
     bars = ax.bar([0, 1], ys, color=[A, C], width=0.6)
@@ -202,25 +245,91 @@ def fig5_checks(h2, src):
     ax.axhline(0, color="#9AA3B5", lw=0.8)
     ax.set_xticks([0, 1], ["A", "C"])
     ax.yaxis.set_major_formatter(mtick.PercentFormatter(1.0, decimals=1))
-    ax.set_title("Before publication (20 trading days)", pad=10)
+    ax.set_title("Before publication\n(20 trading days)", pad=10)
     ax.set_ylabel("Cumulative abnormal return")
-    ax = axes[1]
-    style(ax)
     cv = h2["curves"]
-    for key, label, color, ls in [("ban_A", "A, published during short ban", A, "-"), ("ban_C", "C, during short ban", C, "-"),
-                                  ("after_A", "A, after ban", A, ":"), ("after_C", "C, after ban", C, ":")]:
-        y = cv[key]
-        ax.plot(range(1, len(y) + 1), y, color=color, ls=ls, lw=1.8, label=label)
-        label_end(ax, len(y), y[-1], f"{y[-1]:+.1%}", color)
-    ax.axhline(0, color="#9AA3B5", lw=0.8)
-    ax.set_xlim(1, 68)
-    ax.yaxis.set_major_formatter(mtick.PercentFormatter(1.0, decimals=1))
-    ax.set_xlabel("Trading days after entry")
-    legend_below(ax, 2)
-    ax.set_title("After entry, split by short-ban period (not stratified, not tested)", pad=10)
-    fig.suptitle("Checks (not used for the verdict)", x=0.01, ha="left", fontsize=10, fontweight="bold", color="#01037B")
-    fig.tight_layout(rect=[0, 0, 1, 0.94])
+    start, end = cfg["periods"]["validation_start"], cfg["short_ban"]["end"]
+    first = fig.add_subplot(gs[1])
+    second = fig.add_subplot(gs[2], sharey=first)
+    for ax, pre, title in [(first, "ban", f"Published during the short-selling ban\n({start} to {end})"),
+                           (second, "after", "Published after the ban")]:
+        style(ax)
+        items = []
+        for g, color in [("A", A), ("C", C)]:
+            y = cv[f"{pre}_{g}"]
+            ax.plot(range(1, len(y) + 1), y, color=color, lw=1.8, label=g)
+            items.append((y[-1], f"{g} {y[-1]:+.1%}", color))
+        ax.axhline(0, color="#9AA3B5", lw=0.8)
+        ax.set_xlim(1, 72)
+        ax.yaxis.set_major_formatter(mtick.PercentFormatter(1.0, decimals=1))
+        ax.set_xlabel("Trading days after entry")
+        ax.set_title(title, pad=10)
+    for ax in (first, second):                                   # 두 칸이 같은 세로축을 쓴 뒤에 끝 숫자를 단다
+        label_ends(ax, len(cv["ban_A"]), [(cv[f"{p}_{g}"][-1], f"{g} {cv[f'{p}_{g}'][-1]:+.1%}", col)
+                                          for p in (["ban"] if ax is first else ["after"]) for g, col in [("A", A), ("C", C)]])
+    first.legend(frameon=False, fontsize=8, loc="best")
+    fig.suptitle("Checks (not used for the verdict)", x=0.01, y=1.06, ha="left", fontsize=10, fontweight="bold", color="#01037B")
+    fig.text(0.01, 0.985, "Right two panels: cumulative abnormal return after entry, split by publication date. Reference only: "
+             "labels not grouped by month × sector, no permutation test, smaller samples.", fontsize=7.5, color=INK, va="bottom")
     return save(fig, "fig5_checks.png", src)
+
+
+def fig6_cap(bt, folder, cfg, src):
+    """그림 6 (추가 분석, 결과를 본 뒤 추가): 한 종목 비중 상한 버전. 보유 종목 수, 비용 전·후 누적 수익,
+    주 결과(상한 없음)의 실행 가능 버전을 회색 참고선으로 (10장, 16장)."""
+    base, b = bt["holds"][0], cfg["backtest"]
+    cap, cv, sm = bt["cap"], bt["curves"], bt["summary"]
+    days = pd.to_datetime(cv[f"{base}|ban|cap"]["date"])
+    ban0 = max(pd.Timestamp(cfg["short_ban"]["start"]), days[0])
+    ban1 = min(pd.Timestamp(cfg["short_ban"]["end"]), days[-1])
+    w = sm[f"{base}|ban|cap"].get("winddown_start")
+    wind0 = pd.Timestamp(w) if w else None
+    daily = pd.read_csv(RUNS / folder / "daily_noban_cap.csv", parse_dates=["date"])
+    fig, axes = plt.subplots(3, 1, figsize=(8.5, 8.6), sharex=True, gridspec_kw={"height_ratios": [1.6, 2.2, 2.2]})
+    for i, ax in enumerate(axes):
+        style(ax)
+        shade(ax, ban0, ban1, wind0, days[-1], text=(i == 0))
+
+    ax = axes[0]                                                 # 쪽마다 보유 종목 수 (신호 기준, 상한과 무관)
+    for col, label, color in [("n_long", "Long side (A)", LONG), ("n_short", "Short side (C)", SHORT)]:
+        ax.plot(daily["date"], daily[col], color=color, lw=1.5, label=label)
+    limit = round(b["long_weight"] / cap)
+    ax.axhline(limit, color=N, lw=1)
+    ax.annotate(f"{limit} names: below this, the cap leaves part of the side in cash", (ban1, limit), xytext=(6, 3),
+                textcoords="offset points", fontsize=7, color=N)                # 종목 수가 충분한 구간에 글자를 둔다
+    ax.set_ylabel("Names held")
+    ax.set_ylim(0, ax.get_ylim()[1] * 1.15)                   # 위쪽에 범례 자리를 남긴다
+    ax.legend(frameon=False, fontsize=7.5, loc="upper right", ncol=2)
+    titles(ax, f"Additional analysis (added after seeing the results): per-stock cap of {cap:.0%}, {base}-day holding",
+           f"Each side still gets up to {b['long_weight']:.0%}, but no single stock above {cap:.0%} of the account. "
+           "The main result (fig4) has no cap.\nTop: names held per side (short-side count includes the ban period, "
+           "when the executable version holds no shorts). Shaded: short-selling ban and wind-down.")
+
+    ref = ("ban", "No cap, executable (main result, fig4)", "#B8BECB")
+    for ax, kind, title in [(axes[1], "gross", "Before costs"), (axes[2], "net", "After costs")]:
+        items = []
+        for ver, label, color, key in [(ref[0], ref[1], ref[2], f"{base}|ban")] + \
+                [(v, f"{VERSION[v][0].split(' (')[1][:-1].capitalize()}, {cap:.0%} cap", VERSION[v][1], f"{base}|{v}|cap")
+                 for v in VERSION]:
+            c = cv[key]
+            x, eq = pd.to_datetime(c["date"]), pd.Series(c[kind]) - 1
+            ax.plot(x, eq, color=color, lw=1.4 if key == f"{base}|ban" else 1.8, label=label, zorder=1 if color == ref[2] else 2)
+            name = "no cap" if key == f"{base}|ban" else VERSION[ver][0].split(" (")[1][:-1]
+            items.append((eq.iloc[-1], f"{name} {eq.iloc[-1]:+.1%}", "#8C96AA" if color == ref[2] else color))
+        ax.axhline(0, color="#9AA3B5", lw=0.8)
+        label_ends(ax, x[-1], items)
+        ax.set_ylabel("Cumulative return")
+        ax.yaxis.set_major_formatter(mtick.PercentFormatter(1.0, decimals=0))
+        if kind == "gross":
+            ax.set_title(title, pad=8)
+            ax.legend(frameon=False, fontsize=7.5, loc="best")
+        else:
+            mdd = {v: sm[f"{base}|{v}|cap"]["net"]["mdd"] for v in VERSION}
+            titles(ax, f"{title} (round-trip {b['cost_roundtrip']:.1%}, borrow {b['borrow_rate_annual']:.0%}/yr)",
+                   f"Max drawdown with the cap: executable {mdd['ban']:+.1%}, hypothetical {mdd['noban']:+.1%} "
+                   f"(no cap, executable: {sm[f'{base}|ban']['net']['mdd']:+.1%}).")
+    fig.tight_layout(h_pad=1.2)
+    return save(fig, "fig6_backtest_cap.png", src)
 
 
 if __name__ == "__main__":
@@ -231,5 +340,6 @@ if __name__ == "__main__":
     bt, s3 = latest("backtest")
     chk, s4 = latest("engine_check")
     for path in [fig1_car(h2, f"runs/{s2}"), fig2_h1(h1, f"runs/{s1}"), fig3_permutation(h1, h2, f"runs/{s1}, runs/{s2}"),
-                 fig4_backtest(bt, chk, cfg, f"runs/{s3}, runs/{s4}"), fig5_checks(h2, f"runs/{s2}")]:
+                 fig4_backtest(bt, chk, cfg, f"runs/{s3}, runs/{s4}"), fig5_checks(h2, cfg, f"runs/{s2}"),
+                 fig6_cap(bt, s3, cfg, f"runs/{s3}")]:
         print("그림:", path)
