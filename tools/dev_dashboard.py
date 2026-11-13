@@ -399,8 +399,60 @@ def section_step10():
     return "Step 10 H2", "".join(parts)
 
 
+def section_step11():
+    """Step 11 백테스트: 금지 반영(실행 가능)과 금지 무시(가정), 비용 전후 (가장 최근 runs/*_backtest). 판정에 안 씀."""
+    from src.analysis.guard import require_lock                    # 결과는 고정 뒤에만 (18장)
+    try:
+        require_lock()
+    except RuntimeError:
+        return None
+    parts = []
+    chk = sorted(pathlib.Path("runs").glob("*_engine_check/engine_check.json"))
+    if chk:
+        c = json.loads(chk[-1].read_text(encoding="utf-8"))
+        parts.append(f'<p class="note">엔진 검증 {html.escape(chk[-1].parent.name)}: {"통과" if c["pass"] else "실패"} · '
+                     f'무작위 라벨 A − C 평균 {c["mean_spread"]:+.2%} (표준오차 {c["se_spread"]:.2%})</p>')
+    found = sorted(pathlib.Path("runs").glob("*_backtest/backtest.json"))
+    if not found:
+        return ("Step 11 백테스트", "".join(parts)) if parts else None
+    r = json.loads(found[-1].read_text(encoding="utf-8"))
+    pct, names = "{:+.2%}".format, {"ban": "금지 반영 (실행 가능)", "noban": "금지 무시 (가정)"}
+    hold_name = lambda h: f"{h}거래일" if h.isdigit() else "다음 리포트까지"
+    rows = {}
+    for key, sm in r["summary"].items():
+        h, ban = key.split("|")
+        rows[f"{hold_name(h)} · {names[ban]}"] = {
+            "누적 (비용 전)": pct(sm["gross"]["total"]), "누적 (비용 후)": pct(sm["net"]["total"]),
+            "샤프 (전/후)": f"{sm['gross']['sharpe']:.2f} / {sm['net']['sharpe']:.2f}",
+            "최대낙폭 (전/후)": f"{sm['gross']['mdd']:.1%} / {sm['net']['mdd']:.1%}",
+            "Long side": pct(sm["long_side"]), "Short side": pct(sm["short_side"])}
+    parts += [f'<p class="note">기록: {html.escape(str(found[-1].parent))}</p>', table(pd.DataFrame(rows).T)]
+    base = r["holds"][0]
+    fig, ax = axes(8, 3.4)
+    for ban, color in [("ban", BLUE), ("noban", ORANGE)]:
+        c = r["curves"][f"{base}|{ban}"]
+        x = pd.to_datetime(c["date"])
+        ax.plot(x, c["gross"], color=color, lw=1.8, label=f"{names[ban]}, 비용 전")
+        ax.plot(x, c["net"], color=color, lw=1.8, ls=":", label=f"{names[ban]}, 비용 후")
+    ax.axhline(1, color="#9AA3B5", lw=0.8)
+    ax.legend(frameon=False, fontsize=8)
+    ax.set_title(f"계좌 금액 (시작 = 1, 보유 {hold_name(base)})", loc="left", fontsize=10)
+    parts.append(img(fig))
+    fig, ax = axes(8, 3.0)
+    c = r["curves"][f"{base}|noban"]
+    x = pd.to_datetime(c["date"])
+    ax.plot(x, c["long_side"], color=BLUE, lw=1.8, label="Long side (A - 시장 평균)")
+    ax.plot(x, c["short_side"], color=ORANGE, lw=1.8, label="Short side (시장 평균 - C)")
+    ax.axhline(0, color="#9AA3B5", lw=0.8)
+    ax.yaxis.set_major_formatter(matplotlib.ticker.PercentFormatter(1.0, decimals=0))
+    ax.legend(frameon=False, fontsize=8)
+    ax.set_title("Long side와 Short side (일별 합, 신호 기준, 비용 전)", loc="left", fontsize=10)
+    parts.append(img(fig))
+    return "Step 11 백테스트", "".join(parts)
+
+
 SECTIONS = [section_status, section_step1, section_step2, section_step3, section_step4, section_step5, section_step6,
-            section_step7, section_step8, section_step9, section_step10]
+            section_step7, section_step8, section_step9, section_step10, section_step11]
 
 
 def kpis():
