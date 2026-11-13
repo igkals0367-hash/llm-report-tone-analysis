@@ -10,6 +10,7 @@ def run(start, end, cfg, grades, store, hold=None, enforce_ban=True, cap=None):
     """start~end 거래일마다 decide → 종가 체결 → 다음 날 손익. → 일별 표
     ret_gross: 비용 전, ret_net: 거래비용(한쪽 = 왕복의 절반)과 공매도 이자를 뺀 뒤.
     long_side = A 평균 − 유니버스 평균, short_side = 유니버스 평균 − C 평균 (위험 점검 전 신호, 비용 전).
+    market: 그날 유니버스 평균 수익률 (시장 비교용 참고, 16장).
     cap: 한 종목 비중 상한 (추가 분석, 16장). None이면 주 결과와 같은 규칙이다."""
     b = cfg["backtest"]
     cost, borrow = b["cost_roundtrip"] / 2, b["borrow_rate_annual"] / b["trading_days_per_year"]
@@ -34,7 +35,7 @@ def run(start, end, cfg, grades, store, hold=None, enforce_ban=True, cap=None):
         target = pd.Series(w, dtype=float)
         turnover = float(target.sub(drift, fill_value=0.0).abs().sum())   # 차이만큼만 사고판다
         opened = sum(1 for c, x in w.items() if x * held.get(c, 0.0) <= 0)   # 새로 열었거나 방향을 바꾼 포지션
-        rows.append({"date": day, "ret_gross": gross, "ret_net": (1 + gross - short_cost) * (1 - cost * turnover) - 1,
+        rows.append({"date": day, "market": market, "ret_gross": gross, "ret_net": (1 + gross - short_cost) * (1 - cost * turnover) - 1,
                      "long_side": long_side, "short_side": short_side, "turnover": turnover,
                      "n_long": int((target > 0).sum()), "n_short": int((target < 0).sum()), "n_opened": opened})
     out = pd.DataFrame(rows)

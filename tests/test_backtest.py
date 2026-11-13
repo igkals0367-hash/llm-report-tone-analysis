@@ -142,3 +142,10 @@ def test_swap_mirrors_gross_returns_with_cap():  # 16장 추가 분석: 상한�
     b = run(DAYS[0], DAYS[-1], CFG, grades.assign(grade=grades["grade"].map(SWAP)), st, enforce_ban=False, cap=0.05)
     assert gross_mirror(a, b)[0]
     assert not gross_mirror(a, a)[0]
+
+
+def test_market_column_is_previous_day_universe_average():   # 4장: 전 거래일 명단의 그날 등락률 평균
+    reports, daily, universe, grades = world()
+    res = run(DAYS[1], DAYS[-1], CFG, grades, Store(reports, daily, universe))
+    want = daily.groupby("date")["ret"].mean().loc[DAYS[1]:].to_numpy()   # 가짜 세계는 날마다 40종목 전부가 명단
+    assert np.allclose(res["market"].to_numpy(), want)
