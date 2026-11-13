@@ -1,0 +1,23 @@
+# 푸시할 때마다 깨끗한 컴퓨터에서 pytest를 돌린다 (11장, 16장 "Step 12와 공개 범위").
+# 테스트는 가짜 데이터만 쓰므로 data/, .env, 모델 가중치가 필요 없다.
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Install CPU-only torch
+        run: pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Install requirements
+        run: pip install -r requirements.txt
+      - name: Run tests
+        run: python -m pytest -q
