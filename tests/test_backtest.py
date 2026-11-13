@@ -5,7 +5,7 @@ import pandas as pd
 
 from src.backtest.engine import run, summarize
 from src.backtest.verify import SWAP, swap_check
-from src.strategy.decide import NEXT_REPORT, decide
+from src.strategy.decide import NEXT_REPORT, decide, to_weights
 from src.strategy.store import Store
 
 CFG = {"backtest": {"long_weight": 0.5, "short_weight": 0.5, "holding_days": 60, "cost_roundtrip": 0.003,
@@ -113,3 +113,23 @@ def test_swapping_a_and_c_mirrors_the_sides():   # 16장: 엔진은 A와 C를 �
     b = run(DAYS[0], DAYS[-1], CFG, grades.assign(grade=grades["grade"].map(SWAP)), st, enforce_ban=False)
     assert swap_check(a, b)[0]
     assert not swap_check(a, a)[0]               # 맞바꾸지 않은 실행은 거울이 아니다
+
+
+def test_cap_limits_each_position():             # 16장 추가 분석: 한 종목은 cap을 넘지 않고 남는 몫은 현금이다
+    few = {"001": "A", "002": "A", "003": "C"}
+    assert to_weights(few, CFG, cap=0.05) == {"001": 0.05, "002": 0.05, "003": -0.05}
+    many = {f"{i:03d}": "A" for i in range(12)}  # 0.5 / 12 < 0.05라 상한이 걸리지 않는다
+    assert to_weights(many, CFG, cap=0.05) == to_weights(many, CFG)
+
+
+def test_cap_changes_nothing_when_both_sides_have_ten_or_more():
+    reports, daily, universe, grades = world()
+    a = run(DAYS[0], DAYS[-1], CFG, grades, Store(reports, daily, universe), enforce_ban=False)
+    b = run(DAYS[0], DAYS[-1], CFG, grades, Store(reports, daily, universe), enforce_ban=False, cap=0.05)
+    for col in ["long_side", "short_side", "n_long", "n_short"]:      # 신호 기준 값은 상한과 무관하다
+        pd.testing.assert_series_equal(a[col], b[col])
+    full = ((a["n_long"] >= 10) & (a["n_short"] >= 10)).shift(fill_value=False)   # 전날 목표 비중으로 오늘 손익이 난다
+    few = ((a["n_long"] < 10) | (a["n_short"] < 10)).shift(fill_value=False) & ((a["n_long"] + a["n_short"]).shift() > 0)
+    assert full.any() and few.any()
+    assert np.allclose(a.loc[full, "ret_gross"], b.loc[full, "ret_gross"])
+    assert not np.allclose(a.loc[few, "ret_gross"], b.loc[few, "ret_gross"])

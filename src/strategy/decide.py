@@ -22,21 +22,23 @@ def build_signal(reports, days, as_of, hold):
     return dict(zip(s["item_code"], s["grade"]))
 
 
-def to_weights(signal, cfg):
-    """롱(A)·숏(C)에 각각 계좌의 50%, 쪽마다 같은 비중. 종목이 없는 쪽의 몫은 현금이다 (10장, 16장)."""
+def to_weights(signal, cfg, cap=None):
+    """롱(A)·숏(C)에 각각 계좌의 50%, 쪽마다 같은 비중. 종목이 없는 쪽의 몫은 현금이다 (10장, 16장).
+    cap이 있으면 한 종목 비중을 cap 이하로 묶고 남는 몫은 현금으로 둔다 (추가 분석, 결과를 본 뒤 추가, 16장)."""
     b = cfg["backtest"]
     longs = [c for c, g in signal.items() if g == "A"]
     shorts = [c for c, g in signal.items() if g == "C"]
-    w = {c: b["long_weight"] / len(longs) for c in longs}
-    w.update({c: -b["short_weight"] / len(shorts) for c in shorts})
+    each = lambda total, n: min(total / n, cap) if cap else total / n
+    w = {c: each(b["long_weight"], len(longs)) for c in longs}
+    w.update({c: -each(b["short_weight"], len(shorts)) for c in shorts})
     return w
 
 
-def decide(as_of, store, cfg, hold=None, enforce_ban=True, detail=False):
+def decide(as_of, store, cfg, hold=None, enforce_ban=True, detail=False, cap=None):
     """as_of 날짜라고 치고 종목별 목표 비중을 정한다. as_of 전날까지 게시된 리포트만 본다.
-    detail=True면 위험 점검 전 비중도 함께 돌려준다 (Long side·Short side 계산용)."""
+    detail=True면 위험 점검 전 비중도 함께 돌려준다 (Long side·Short side 계산용). cap은 to_weights에 넘긴다."""
     reports = store.reports(before=as_of)
     signal = build_signal(reports, store.days, as_of, hold or cfg["backtest"]["holding_days"])
-    raw = to_weights(signal, cfg)
+    raw = to_weights(signal, cfg, cap)
     weights = risk_check(raw, as_of, cfg, enforce_ban)
     return (weights, raw) if detail else weights
