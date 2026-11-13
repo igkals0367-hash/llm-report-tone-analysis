@@ -32,7 +32,7 @@ F = {k: pathlib.Path(v) for k, v in {
 }.items()}
 
 # KRISS 발표 자료의 색: 남색 띠·표 머리, 파란색 데이터, 주황색은 두 번째 계열과 경고
-NAVY, BLUE, ORANGE, SLATE = "#01037B", "#006DCE", "#C0562B", "#3C4A66"
+NAVY, BLUE, ORANGE, SLATE = "#01037B", "#4C72B0", "#C44E52", "#3C4A66"
 LINE, CARD, LIGHT, SURFACE = "#E2E6F0", "#F8F9FC", "#DCEDFF", "#FFFFFF"
 PERIOD_COLOR = {"baseline": BLUE, "validation": ORANGE}
 _fonts = {f.name for f in font_manager.fontManager.ttflist}
