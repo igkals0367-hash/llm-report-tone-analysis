@@ -31,10 +31,13 @@ F = {k: pathlib.Path(v) for k, v in {
     "tone": "data/processed/tone.parquet",
 }.items()}
 
-# KRISS 발표 자료의 색: 남색 띠·표 머리, 파란색 데이터, 주황색은 두 번째 계열과 경고
-NAVY, BLUE, ORANGE, SLATE = "#01037B", "#4C72B0", "#C44E52", "#3C4A66"
+# KRISS 발표 자료의 색: 남색 띠·표 머리. 데이터 색은 결과 그림(src/viz/figures.py)과 같다
+NAVY, BLUE, RED, SLATE = "#01037B", "#4C72B0", "#C44E52", "#3C4A66"   # BLUE = A, RED = C
+LONG, SHORT, GRAY = "#4DAF6E", "#B2373D", "#9AA3B5"                   # 백테스트의 롱·숏, 참고선
+VERSION = {"ban": ("금지 반영 (실행 가능)", "#3A6EA5"), "noban": ("금지 무시 (가정)", "#D98A2B")}
 LINE, CARD, LIGHT, SURFACE = "#E2E6F0", "#F8F9FC", "#DCEDFF", "#FFFFFF"
-PERIOD_COLOR = {"baseline": BLUE, "validation": ORANGE}
+BAN_SHADE, WIND_SHADE = "#EEF2F8", "#F7F1E6"                          # 음영: 공매도 금지 기간, 청산 구간
+PERIOD_COLOR = {"baseline": BLUE, "validation": RED}
 _fonts = {f.name for f in font_manager.fontManager.ttflist}
 for _name in ["Pretendard", "Malgun Gothic", "AppleGothic", "NanumGothic", "Noto Sans CJK KR", "Noto Sans CJK JP"]:
     if _name in _fonts:                                          # 한글 글꼴 (Windows는 Malgun Gothic)
@@ -97,9 +100,9 @@ def hist(values, title, xlabel, bins=40, range_=None, vlines=()):
     ax.hist(values, bins=bins, range=range_, color=BLUE, edgecolor=SURFACE, linewidth=0.8)
     for i, (x, label) in enumerate(vlines):                      # (위치, 이름): 기준선. 두 개면 첫째 이름은 왼쪽에
         left = i == 0 and len(vlines) > 1
-        ax.axvline(x, color=ORANGE, lw=1.5, ls="--")
+        ax.axvline(x, color=RED, lw=1.5)
         ax.annotate(label, (x, ax.get_ylim()[1] * 0.92), xytext=(-5 if left else 5, 0), textcoords="offset points",
-                    color=ORANGE, fontsize=9, ha="right" if left else "left")
+                    color=RED, fontsize=9, ha="right" if left else "left")
     ax.set_title(f"{title} (n={len(values):,})", loc="left", fontsize=10)
     ax.set_xlabel(xlabel, fontsize=9)
     return img(fig)
@@ -120,6 +123,24 @@ def barh(counts, title, top=15):
 
 def rows(path):
     return pq.ParquetFile(path).metadata.num_rows
+
+
+def end_labels(ax, x, items, gap=0.08):
+    """선 끝 숫자가 겹치지 않게 위아래로 벌려 단다. items: [(y, 글자, 색)]"""
+    lo, hi = ax.get_ylim()
+    placed = []
+    for y, text, color in sorted(items, key=lambda t: t[0]):
+        y = max(y, placed[-1] + (hi - lo) * gap) if placed else y
+        placed.append(y)
+        ax.annotate(text, (x, y), xytext=(4, 0), textcoords="offset points", fontsize=8, color=color,
+                    va="center", fontweight="bold")
+
+
+def shade(ax, ban, wind0, end):
+    """공매도 금지 기간과 청산 구간(마지막 신규 진입 다음 날부터 끝까지)을 칠한다 (16장)."""
+    ax.axvspan(*ban, color=BAN_SHADE, zorder=0)
+    if wind0 is not None:
+        ax.axvspan(wind0, end, color=WIND_SHADE, zorder=0)
 
 
 # ---------- 칸: Step마다 하나. 읽을 파일이 없으면 None을 돌려 건너뛴다 ----------
@@ -335,7 +356,7 @@ def section_step9():
                                      name="민감도: 잠근 원래 규칙 (판정에 안 씀)").to_frame()))
     fig, ax = axes(8, 3.2)                                       # 하향·유지·상향 비율과 Wilson 95% 구간
     kinds = [("down", "하향"), ("same", "유지"), ("up", "상향")]
-    for j, (g, color) in enumerate([("A", BLUE), ("C", ORANGE)]):
+    for j, (g, color) in enumerate([("A", BLUE), ("C", RED)]):
         xs = [i + (j - 0.5) * 0.36 for i in range(3)]
         ys = [sm[g][k] for k, _ in kinds]
         err = [[y - sm[g][k + "_ci"][0] for y, (k, _) in zip(ys, kinds)],
@@ -371,15 +392,19 @@ def section_step10():
              f'중복 제거 뒤 A {cn["A"]["kept"]:,} · C {cn["C"]["kept"]:,} · 중립 참고 {cn["N"]["kept"]:,}</p>',
              table(pd.DataFrame(rows).T)]
 
-    def curves(title, series):
+    def curves(title, series, ylim=None):
         fig, ax = axes(8, 3.4)
-        for key, label, color, ls in series:
+        items, n = [], 0
+        for key, label, color in series:
             y = r["curves"].get(key) or []
             if y:
-                ax.plot(range(1, len(y) + 1), y, color=color, lw=2, ls=ls, label=label)
-                ax.annotate(f"{label} {y[-1]:+.1%}", (len(y), y[-1]), xytext=(4, 0), textcoords="offset points",
-                            fontsize=8, color=SLATE, va="center")
-        ax.axhline(0, color="#9AA3B5", lw=0.8)
+                ax.plot(range(1, len(y) + 1), y, color=color, lw=2, label=label)
+                items.append((y[-1], f"{label} {y[-1]:+.1%}", color))
+                n = len(y)
+        if ylim:
+            ax.set_ylim(*ylim)
+        end_labels(ax, n, items)
+        ax.axhline(0, color=GRAY, lw=0.8)
         ax.set_xlim(1, 68)
         ax.yaxis.set_major_formatter(matplotlib.ticker.PercentFormatter(1.0, decimals=1))
         ax.set_xlabel("진입 후 거래일", fontsize=9)
@@ -388,10 +413,13 @@ def section_step10():
         return img(fig)
 
     parts.append(curves("평균 누적 초과수익 (날마다 1% 누름)",
-                        [("A", "A", BLUE, "-"), ("C", "C", ORANGE, "-"), ("N", "중립 참고", "#9AA3B5", "--")]))
-    parts.append(curves("점검 1: 게시일이 공매도 금지 기간(실선)과 그 뒤(점선)",
-                        [("ban_A", "A 금지", BLUE, "-"), ("ban_C", "C 금지", ORANGE, "-"),
-                         ("after_A", "A 그 뒤", BLUE, ":"), ("after_C", "C 그 뒤", ORANGE, ":")]))
+                        [("A", "A", BLUE), ("C", "C", RED), ("N", "중립 참고", GRAY)]))
+    split = [v for k in ["ban_A", "ban_C", "after_A", "after_C"] for v in (r["curves"].get(k) or [])]
+    if split:                                                    # 점검 1: 두 칸이 같은 세로축을 쓴다
+        pad = (max(split) - min(split)) * 0.1
+        ylim = (min(split) - pad, max(split) + pad)
+        parts.append(curves("점검 1: 게시일이 공매도 금지 기간인 리포트", [("ban_A", "A", BLUE), ("ban_C", "C", RED)], ylim))
+        parts.append(curves("점검 1: 게시일이 금지가 풀린 뒤인 리포트", [("after_A", "A", BLUE), ("after_C", "C", RED)], ylim))
     parts.append(table(pd.Series({"A": pct(r["pre"]["A"]), "C": pct(r["pre"]["C"])},
                                  name="점검 2: 리포트 직전 20거래일 초과수익").to_frame()))
     parts.append(hist(pd.Series(r["shuffled"]), "라벨을 섞었을 때의 60거래일 차이 (C - A)", "차이", bins=40,
@@ -400,54 +428,99 @@ def section_step10():
 
 
 def section_step11():
-    """Step 11 백테스트: 금지 반영(실행 가능)과 금지 무시(가정), 비용 전후 (가장 최근 runs/*_backtest). 판정에 안 씀."""
+    """Step 11 백테스트: 주 결과(상한 없음), 추가 분석(한 종목 상한, 결과를 본 뒤 추가), 시장 참고 (가장 최근 runs/*_backtest). 판정에 안 씀."""
     from src.analysis.guard import require_lock                    # 결과는 고정 뒤에만 (18장)
+    from src.config import load_config
     try:
         require_lock()
     except RuntimeError:
         return None
     parts = []
-    chk = sorted(pathlib.Path("runs").glob("*_engine_check/engine_check.json"))
-    if chk:
-        c = json.loads(chk[-1].read_text(encoding="utf-8"))
-        parts.append(f'<p class="note">엔진 검증 {html.escape(chk[-1].parent.name)}: {"통과" if c["pass"] else "실패"} · '
-                     f'무작위 라벨 A − C 평균 {c["mean_spread"]:+.2%} (표준오차 {c["se_spread"]:.2%})</p>')
+    for kind, name in [("engine_check", "엔진 검증 (주 결과)"), ("engine_check_cap", "엔진 검증 (상한, 추가 분석)")]:
+        chk = sorted(pathlib.Path("runs").glob(f"*_{kind}/engine_check.json"))
+        if chk:
+            c = json.loads(chk[-1].read_text(encoding="utf-8"))
+            parts.append(f'<p class="note">{name} {html.escape(chk[-1].parent.name)}: {"통과" if c["pass"] else "실패"} · '
+                         f'무작위 라벨 A − C 평균 {c["mean_spread"]:+.2%} (표준오차 {c["se_spread"]:.2%})</p>')
     found = sorted(pathlib.Path("runs").glob("*_backtest/backtest.json"))
     if not found:
         return ("Step 11 백테스트", "".join(parts)) if parts else None
     r = json.loads(found[-1].read_text(encoding="utf-8"))
-    pct, names = "{:+.2%}".format, {"ban": "금지 반영 (실행 가능)", "noban": "금지 무시 (가정)"}
+    pct, cap = "{:+.2%}".format, r.get("cap")
     hold_name = lambda h: f"{h}거래일" if h.isdigit() else "다음 리포트까지"
+    parts.append(f'<p class="note">기록: {html.escape(str(found[-1].parent))}</p>')
+    if "market" in r:
+        m = r["market"]
+        parts.append(f'<p class="note">시장 (유니버스 평균, 참고): 누적 {pct(m["total"])}, 샤프 {m["sharpe"]:.2f}, '
+                     f'최대낙폭 {m["mdd"]:.1%}</p>')
     rows = {}
     for key, sm in r["summary"].items():
-        h, ban = key.split("|")
-        rows[f"{hold_name(h)} · {names[ban]}"] = {
-            "누적 (비용 전)": pct(sm["gross"]["total"]), "누적 (비용 후)": pct(sm["net"]["total"]),
-            "샤프 (전/후)": f"{sm['gross']['sharpe']:.2f} / {sm['net']['sharpe']:.2f}",
-            "최대낙폭 (전/후)": f"{sm['gross']['mdd']:.1%} / {sm['net']['mdd']:.1%}",
-            "Long side": pct(sm["long_side"]), "Short side": pct(sm["short_side"])}
-    parts += [f'<p class="note">기록: {html.escape(str(found[-1].parent))}</p>', table(pd.DataFrame(rows).T)]
-    base = r["holds"][0]
-    fig, ax = axes(8, 3.4)
-    for ban, color in [("ban", BLUE), ("noban", ORANGE)]:
-        c = r["curves"][f"{base}|{ban}"]
-        x = pd.to_datetime(c["date"])
-        ax.plot(x, c["gross"], color=color, lw=1.8, label=f"{names[ban]}, 비용 전")
-        ax.plot(x, c["net"], color=color, lw=1.8, ls=":", label=f"{names[ban]}, 비용 후")
-    ax.axhline(1, color="#9AA3B5", lw=0.8)
-    ax.legend(frameon=False, fontsize=8)
-    ax.set_title(f"계좌 금액 (시작 = 1, 보유 {hold_name(base)})", loc="left", fontsize=10)
-    parts.append(img(fig))
-    fig, ax = axes(8, 3.0)
-    c = r["curves"][f"{base}|noban"]
+        h, ban, *capped = key.split("|")                         # 상한 버전의 키는 "60|ban|cap"
+        label = f"{hold_name(h)} · {VERSION[ban][0]}" + (f" · 추가 분석: 상한 {cap:.0%}" if capped else "")
+        rows[label] = {"누적 (비용 전)": pct(sm["gross"]["total"]), "누적 (비용 후)": pct(sm["net"]["total"]),
+                       "샤프 (전/후)": f"{sm['gross']['sharpe']:.2f} / {sm['net']['sharpe']:.2f}",
+                       "최대낙폭 (전/후)": f"{sm['gross']['mdd']:.1%} / {sm['net']['mdd']:.1%}",
+                       "Long side": pct(sm["long_side"]), "Short side": pct(sm["short_side"]),
+                       "청산 구간 시작": sm.get("winddown_start") or "-"}
+    parts.append(table(pd.DataFrame(rows).T))
+
+    cfg, base = load_config(), r["holds"][0]
+    cv, sm = r["curves"], r["summary"]
+    days = pd.to_datetime(cv[f"{base}|ban"]["date"])
+    ban = (max(pd.Timestamp(cfg["short_ban"]["start"]), days[0]), min(pd.Timestamp(cfg["short_ban"]["end"]), days[-1]))
+    w = sm[f"{base}|ban"].get("winddown_start")
+    wind0 = pd.Timestamp(w) if w else None
+    note = f" · 음영: 공매도 금지(파랑), 청산 구간(베이지)" if wind0 is not None else " · 음영: 공매도 금지"
+
+    def chart(title, lines, h=3.2, ylabel=None):
+        """lines: [(x, y, 이름, 색, 굵기, 끝 숫자 이름)]. 모두 실선."""
+        fig, ax = axes(8, h)
+        shade(ax, ban, wind0, days[-1])
+        items = []
+        for x, y, label, color, lw, tag in lines:
+            ax.plot(x, y, color=color, lw=lw, label=label)
+            if tag:
+                items.append((y.iloc[-1], f"{tag} {y.iloc[-1]:+.1%}", color))
+        ax.axhline(0, color=GRAY, lw=0.8)
+        end_labels(ax, days[-1], items)
+        ax.yaxis.set_major_formatter(matplotlib.ticker.PercentFormatter(1.0, decimals=0))
+        ax.legend(frameon=False, fontsize=8, loc="best")
+        ax.set_title(title, loc="left", fontsize=10)
+        return img(fig)
+
+    def eq(key, kind):
+        c = cv[key]
+        return pd.to_datetime(c["date"]), pd.Series(c[kind]) - 1
+
+    if "market" in cv:                                           # 시장은 크기가 달라 따로 그린다
+        x, y = pd.to_datetime(cv["market"]["date"]), pd.Series(cv["market"]["equity"]) - 1
+        parts.append(chart("시장: 유니버스 평균 누적 수익 (참고)" + note, [(x, y, "유니버스 평균", GRAY, 1.8, "시장")], h=2.6))
+    for kind, title in [("gross", "비용 전"), ("net", "비용 후")]:
+        lines = [(*eq(f"{base}|{v}", kind), VERSION[v][0], VERSION[v][1], 1.8, VERSION[v][0].split(" (")[1][:-1])
+                 for v in VERSION]
+        parts.append(chart(f"누적 수익 {title} (보유 {hold_name(base)}, 주 결과)", lines))
+    if cap and f"{base}|ban|cap" in cv:                          # 추가 분석: 상한 버전과 주 결과(회색)
+        lines = [(*eq(f"{base}|ban", "net"), "상한 없음, 실행 가능 (주 결과)", "#B8BECB", 1.4, "상한 없음")]
+        lines += [(*eq(f"{base}|{v}|cap", "net"), f"{VERSION[v][0]}, 상한 {cap:.0%}", VERSION[v][1], 1.8,
+                   VERSION[v][0].split(" (")[1][:-1]) for v in VERSION]
+        parts.append(chart(f"추가 분석 (결과를 본 뒤 추가): 한 종목 상한 {cap:.0%}, 비용 후", lines))
+        daily = found[-1].parent / "daily_noban_cap.csv"
+        if daily.exists():                                       # 쪽마다 보유 종목 수 (신호 기준)
+            d = pd.read_csv(daily, parse_dates=["date"])
+            fig, ax = axes(8, 2.6)
+            shade(ax, ban, wind0, days[-1])
+            ax.plot(d["date"], d["n_long"], color=LONG, lw=1.5, label="롱 (A)")
+            ax.plot(d["date"], d["n_short"], color=SHORT, lw=1.5, label="숏 (C)")
+            ax.axhline(round(0.5 / cap), color=GRAY, lw=1)
+            ax.set_ylim(0, ax.get_ylim()[1] * 1.15)
+            ax.legend(frameon=False, fontsize=8, loc="upper right", ncol=2)
+            ax.set_title(f"쪽마다 보유 종목 수 (회색 선 {round(0.5 / cap)}개 아래면 상한 때문에 일부가 현금)", loc="left", fontsize=10)
+            parts.append(img(fig))
+    c = cv[f"{base}|noban"]
     x = pd.to_datetime(c["date"])
-    ax.plot(x, c["long_side"], color=BLUE, lw=1.8, label="Long side (A - 시장 평균)")
-    ax.plot(x, c["short_side"], color=ORANGE, lw=1.8, label="Short side (시장 평균 - C)")
-    ax.axhline(0, color="#9AA3B5", lw=0.8)
-    ax.yaxis.set_major_formatter(matplotlib.ticker.PercentFormatter(1.0, decimals=0))
-    ax.legend(frameon=False, fontsize=8)
-    ax.set_title("Long side와 Short side (일별 합, 신호 기준, 비용 전)", loc="left", fontsize=10)
-    parts.append(img(fig))
+    parts.append(chart("Long side와 Short side (일별 합, 신호 기준, 비용 전)",
+                       [(x, pd.Series(c["long_side"]), "Long side (A - 시장 평균)", LONG, 1.8, "Long"),
+                        (x, pd.Series(c["short_side"]), "Short side (시장 평균 - C)", SHORT, 1.8, "Short")]))
     return "Step 11 백테스트", "".join(parts)
 
 
@@ -486,11 +559,14 @@ main{padding:0 16px 40px;}
 .kpi{background:#F8F9FC;border:1px solid #E2E6F0;padding:12px 14px;}
 .kpi b{display:block;color:#01037B;font-size:22px;font-weight:800;}
 .kpi span{font-size:12px;}
-nav{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 4px;}
+html{scroll-behavior:smooth;}
+nav{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 4px;position:sticky;top:0;z-index:10;background:#fff;
+    padding:8px 0;border-bottom:1px solid #E2E6F0;}
+@media (max-width:640px){nav{flex-wrap:nowrap;overflow-x:auto;}}
 nav a{background:#DCEDFF;border:1px solid #01037B;color:#01037B;font-size:12px;font-weight:700;
       padding:5px 10px;text-decoration:none;}
 nav a i{font-style:normal;font-weight:400;margin-right:6px;}
-section{margin-top:28px;}
+section{margin-top:28px;scroll-margin-top:96px;}
 section > h2{background:#01037B;color:#fff;margin:0;padding:8px 14px 9px;font-size:16px;font-weight:800;
              border-bottom:3px solid #DCEDFF;}
 section > h2 small{display:block;font-size:10px;font-weight:700;color:#DCEDFF;margin-bottom:2px;}
@@ -503,7 +579,7 @@ table.t tr:nth-child(even) td{background:#F8F9FC;}
 table.t td:first-child,table.t th:first-child{text-align:left;}
 table.t td:first-child{color:#01037B;font-weight:700;}
 .note{font-size:12px;color:#5A6478;}
-.err{background:#FFF1EC;border-left:4px solid #C0562B;color:#C0562B;white-space:pre-wrap;font-size:12px;padding:10px;}
+.err{background:#FFF1EC;border-left:4px solid #C44E52;color:#C44E52;white-space:pre-wrap;font-size:12px;padding:10px;}
 footer{max-width:900px;margin:30px auto 0;font-size:11px;color:#9AA3B5;padding:0 16px 20px;}
 """
 
