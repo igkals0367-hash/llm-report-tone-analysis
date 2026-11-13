@@ -351,8 +351,56 @@ def section_step9():
     return "Step 9 H1", "".join(parts)
 
 
+def section_step10():
+    """Step 10 H2: 등급별 누적 초과수익 곡선과 라벨 섞기 검정 (가장 최근 runs/*_h2)."""
+    from src.analysis.guard import require_lock                    # 결과는 고정 뒤에만 (18장)
+    try:
+        require_lock()
+    except RuntimeError:
+        return None
+    found = sorted(pathlib.Path("runs").glob("*_h2/h2.json"))
+    if not found:
+        return None
+    r = json.loads(found[-1].read_text(encoding="utf-8"))
+    pct = "{:+.2%}".format
+    rows = {name: {"A 평균": pct(x["A"]), "C 평균": pct(x["C"]), "차이 C − A": pct(x["diff"]), "p": f"{x['p']:.4f}"}
+            for name, x in [("판정: 60거래일, 1% 누름", r["main"]), ("보조: 60거래일, 5% 누름", r["aux_winsor"]),
+                            ("보조: 20거래일, 1% 누름", r["aux_days"])]}
+    cn = r["counts"]
+    parts = [f'<p class="note">기록: {html.escape(str(found[-1].parent))} · 판정: H2 {html.escape(r["verdict"])} · '
+             f'중복 제거 뒤 A {cn["A"]["kept"]:,} · C {cn["C"]["kept"]:,} · 중립 참고 {cn["N"]["kept"]:,}</p>',
+             table(pd.DataFrame(rows).T)]
+
+    def curves(title, series):
+        fig, ax = axes(8, 3.4)
+        for key, label, color, ls in series:
+            y = r["curves"].get(key) or []
+            if y:
+                ax.plot(range(1, len(y) + 1), y, color=color, lw=2, ls=ls, label=label)
+                ax.annotate(f"{label} {y[-1]:+.1%}", (len(y), y[-1]), xytext=(4, 0), textcoords="offset points",
+                            fontsize=8, color=SLATE, va="center")
+        ax.axhline(0, color="#9AA3B5", lw=0.8)
+        ax.set_xlim(1, 68)
+        ax.yaxis.set_major_formatter(matplotlib.ticker.PercentFormatter(1.0, decimals=1))
+        ax.set_xlabel("진입 후 거래일", fontsize=9)
+        ax.legend(frameon=False, fontsize=8, loc="upper left")
+        ax.set_title(title, loc="left", fontsize=10)
+        return img(fig)
+
+    parts.append(curves("평균 누적 초과수익 (날마다 1% 누름)",
+                        [("A", "A", BLUE, "-"), ("C", "C", ORANGE, "-"), ("N", "중립 참고", "#9AA3B5", "--")]))
+    parts.append(curves("점검 1: 게시일이 공매도 금지 기간(실선)과 그 뒤(점선)",
+                        [("ban_A", "A 금지", BLUE, "-"), ("ban_C", "C 금지", ORANGE, "-"),
+                         ("after_A", "A 그 뒤", BLUE, ":"), ("after_C", "C 그 뒤", ORANGE, ":")]))
+    parts.append(table(pd.Series({"A": pct(r["pre"]["A"]), "C": pct(r["pre"]["C"])},
+                                 name="점검 2: 리포트 직전 20거래일 초과수익").to_frame()))
+    parts.append(hist(pd.Series(r["shuffled"]), "라벨을 섞었을 때의 60거래일 차이 (C - A)", "차이", bins=40,
+                      vlines=[(r["main"]["diff"], f"실제 {r['main']['diff']:+.2%}")]))
+    return "Step 10 H2", "".join(parts)
+
+
 SECTIONS = [section_status, section_step1, section_step2, section_step3, section_step4, section_step5, section_step6,
-            section_step7, section_step8, section_step9]
+            section_step7, section_step8, section_step9, section_step10]
 
 
 def kpis():
