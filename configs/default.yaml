@@ -63,3 +63,4 @@ pdf:                       # v2 Step 1b (19장)
   max_symbol_ratio: 0.50   # (a) 숫자·기호(한글·영문이 아닌 글자) 비율이 이 이상이면 줄을 뺀다
   min_line_hangul: 10      # (a) 한글이 이보다 적고 . ? !로 끝나지 않으면 줄을 뺀다
   boilerplate_min_reports: 20   # (b) 서로 다른 리포트 이만큼에 나오는 문장은 정형 문구로 뺀다
+  line_margin: 1.0         # 글자 뽑기: 줄 간격이 이 배수 안이면 한 덩어리로 묶는다 (기본 0.5)

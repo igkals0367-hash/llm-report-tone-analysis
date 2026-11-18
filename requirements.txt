@@ -11,4 +11,4 @@ torch
 matplotlib
 tqdm
 pytest
-pdfplumber
+pdfminer.six

@@ -23,3 +23,8 @@ def test_no_url_and_download_failed(monkeypatch):
         raise OSError("network")
     monkeypatch.setattr(m, "fetch", broken)
     assert m.process(2, CFG)["status"] == "download_failed"
+
+
+def test_latest_keeps_last_row_per_nid():        # --reextract가 manifest를 새로 쓸 때 쓴다
+    rows = [{"nid": "1", "status": "download_failed"}, {"nid": "2", "status": "ok"}, {"nid": "1", "status": "ok"}]
+    assert [(r["nid"], r["status"]) for r in m.latest(rows)] == [("1", "ok"), ("2", "ok")]
