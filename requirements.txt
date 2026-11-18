@@ -11,3 +11,4 @@ torch
 matplotlib
 tqdm
 pytest
+pdfplumber

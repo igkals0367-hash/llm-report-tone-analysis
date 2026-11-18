@@ -55,3 +55,8 @@ pairs:
   max_gap_months: 6
   search_from: 2023-01-01
   adj_tol: 0.001            # 기준가 조정일 판정: |원래 종가 변화 − ret| > 이 값 (16장)
+pdf:                       # v2 Step 1b (19장)
+  sleep_sec: 1.0           # 요청 사이 쉬는 시간(초)
+  timeout_sec: 60
+  retries: 3               # 실패하면 간격을 늘려 가며 다시 시도하는 횟수
+  min_hangul: 100          # 한글이 이보다 적으면 글자 없음 (스캔·깨진 PDF)
