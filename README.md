@@ -2,6 +2,8 @@
 
 ![tests](https://github.com/igkals0367-hash/llm-report-tone-analysis/actions/workflows/ci.yml/badge.svg)
 
+**Development dashboard (Korean):** https://igkals0367-hash.github.io/llm-report-tone-analysis/ (counts and distributions at each step, no report text)
+
 Korean sell-side analysts almost never write "Sell". This project asks whether the **tone of the text** carries a
 hidden sell view: when a report keeps a Buy rating and the same target price, but its wording turns cooler than the
 same broker's previous report on the same stock, do target-price cuts and weak returns follow?
