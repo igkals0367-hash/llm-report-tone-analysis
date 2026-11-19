@@ -1,4 +1,5 @@
-"""Step 5: 톤 점수 (7장). 문장마다 긍정·중립·부정 확률을 구하고, 리포트 톤 = 문장별 (긍정 − 부정)의 평균."""
+"""Step 5: 톤 점수 (7장). 문장마다 긍정·중립·부정 확률을 구하고, 리포트 톤 = 문장별 (긍정 − 부정)의 평균.
+입력·출력 파일 이름은 설정의 text_source를 따른다: summary(v1)는 그대로, pdf(v2)는 이름 끝에 _pdf (19장 코드)."""
 import os
 import pathlib
 import time
@@ -10,7 +11,7 @@ import torch
 from tqdm import tqdm
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
-from src.config import load_config
+from src.config import load_config, source_path
 
 os.environ.setdefault("DISABLE_SAFETENSORS_CONVERSION", "1")   # 고정 리비전 밖의 변환 파일을 받지 않는다
 
@@ -59,24 +60,27 @@ def report_tone(probs):
 
 
 def build_tone(cfg):
-    """sentences.parquet → sentence_probs.parquet, tone.parquet (7장 Step 5, 18장 열 이름)."""
-    s = pd.read_parquet(SENTENCES)
+    """sentences.parquet → sentence_probs.parquet, tone.parquet (7장 Step 5, 18장 열 이름). v2는 각각 _pdf."""
+    sentences, probs_path, tone_path = (source_path(p, cfg) for p in (SENTENCES, PROBS, TONE))
+    s = pd.read_parquet(sentences)
     p = score_sentences(s["text"], cfg)
     rev = cfg["model"]["revision"]
     probs = s[["nid", "sent_idx"]].assign(p_pos=p[:, 0], p_neu=p[:, 1], p_neg=p[:, 2], model_revision=rev)
-    PROBS.parent.mkdir(parents=True, exist_ok=True)
-    probs.to_parquet(PROBS, index=False)
+    probs_path.parent.mkdir(parents=True, exist_ok=True)
+    probs.to_parquet(probs_path, index=False)
 
     g = probs.groupby("nid")
     tone = pd.DataFrame({"tone": g[["p_pos", "p_neg"]].apply(report_tone), "n_sentences": g.size()}).reset_index()
     tone["model_revision"] = rev
-    TONE.parent.mkdir(parents=True, exist_ok=True)
-    tone.to_parquet(TONE, index=False)
+    tone_path.parent.mkdir(parents=True, exist_ok=True)
+    tone.to_parquet(tone_path, index=False)
     return probs, tone
 
 
 if __name__ == "__main__":
     t0 = time.time()
-    probs, tone = build_tone(load_config())
+    cfg = load_config()
+    print("글 출처:", cfg.get("text_source", "summary"), "→", source_path(TONE, cfg))
+    probs, tone = build_tone(cfg)
     print(f"문장 {len(probs):,}개, 리포트 {len(tone):,}건, {(time.time() - t0) / 60:.1f}분")
     print("리포트 톤:", tone["tone"].describe()[["min", "25%", "50%", "75%", "max"]].round(3).to_dict())

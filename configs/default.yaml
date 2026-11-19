@@ -1,3 +1,4 @@
+text_source: pdf           # 글 출처: summary(v1 제목·요약) 또는 pdf(v2 제목·PDF 본문). 파일 이름만 바뀐다 (19장)
 ingest:
   start_date: 2023-01-01
   sleep_sec: 0.5            # 네이버 요청 간격(초)
