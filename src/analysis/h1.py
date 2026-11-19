@@ -1,19 +1,23 @@
 """Step 9 H1 (9장): C 리포트 뒤에 다음 리포트의 목표가·의견이 A 뒤보다 더 나빠지는가.
-분류 고정 뒤에만 돈다 (18장). 점수는 모델이 아니라 네이버의 목표가·의견 값으로만 매긴다."""
+분류 고정 뒤에만 돈다 (18장). 점수는 모델이 아니라 네이버의 목표가·의견 값으로만 매긴다.
+v2(text_source: pdf)는 _pdf 등급·컷오프로 p < 0.025 판정, --v1same은 v1 등급으로 v2에 남은 쌍만 계산하는 참고 비교 (19장).
+사용: python -m src.analysis.h1            (설정의 글 출처로 판정)
+      python -m src.analysis.h1 --v1same   (같은 쌍 v1 비교, v2 고정 뒤에만)"""
 import datetime as dt
 import json
 import math
 import pathlib
 import shutil
 import subprocess
+import sys
 
 import numpy as np
 import pandas as pd
 
-from src.analysis.guard import CUTOFFS, require_lock
+from src.analysis.guard import CUTOFFS, analysis_mode, require_lock
 from src.analysis.permutation import permutation_test
 from src.analysis.precheck import within_window
-from src.config import load_config
+from src.config import load_config, source_path
 from src.preprocess.pairs import adjusted_between, adjustment_days
 
 PAIRS = pathlib.Path("data/processed/pairs.parquet")
@@ -52,10 +56,13 @@ def score_change(r_rank, r_tp, n_rank, n_tp, missing="known"):
     return score
 
 
-def next_report_scores(pairs, reports, cfg):
-    """검증 A·C 리포트마다 다음 리포트를 찾아 점수를 매긴다 (9장 Step 9). → 리포트별 표"""
-    lock = require_lock()                                       # 분류 고정 전이면 여기서 멈춘다
-    grades = pd.read_parquet(GRADES)
+def next_report_scores(pairs, reports, cfg, keep=None):
+    """검증 A·C 리포트마다 다음 리포트를 찾아 점수를 매긴다 (9장 Step 9). → 리포트별 표
+    등급·컷오프는 cfg의 글 출처를 따른다(v2는 _pdf). keep을 주면 그 r_nid만 남긴다(같은 쌍 v1 비교, 19장)."""
+    lock = require_lock(source_path(CUTOFFS, cfg))              # 분류 고정 전이면 여기서 멈춘다
+    grades = pd.read_parquet(source_path(GRADES, cfg))
+    if keep is not None:
+        grades = grades[grades["r_nid"].isin(keep)]
     ac = (grades[grades["grade"].isin(["A", "C"])][["r_nid", "grade"]]
           .merge(pairs[["r_nid", "write_date", "item_code", "sector"]], on="r_nid", how="left")
           .reset_index(drop=True))
@@ -110,14 +117,17 @@ def summarize(h, col="score"):
 
 
 if __name__ == "__main__":
-    cfg = load_config()
-    lock = require_lock()
-    pairs = pd.read_parquet(PAIRS)
+    mode = analysis_mode(load_config(), v1same="--v1same" in sys.argv[1:])
+    cfg, tag, alpha = mode["cfg"], mode["tag"], mode["alpha"]  # v1same이면 cfg는 v1(summary) 설정
+    cut_path = source_path(CUTOFFS, cfg)
+    lock = require_lock(cut_path)
+    pairs = pd.read_parquet(source_path(PAIRS, cfg))
     reports = pd.read_parquet(REPORTS, columns=["nid", "write_date", "broker_code", "item_code",
                                                 "opinion_rank", "goal_price"])
-    h = next_report_scores(pairs, reports, cfg)
-    OUT.parent.mkdir(parents=True, exist_ok=True)
-    h[["r_nid", "grade", "n_nid", "n_write_date", "score", "status", "score_locked"]].to_parquet(OUT, index=False)
+    h = next_report_scores(pairs, reports, cfg, mode["keep"])
+    out = OUT.with_name(f"{OUT.stem}{tag}{OUT.suffix}")         # h1.parquet, h1_pdf.parquet, h1_v1same.parquet
+    out.parent.mkdir(parents=True, exist_ok=True)
+    h[["r_nid", "grade", "n_nid", "n_write_date", "score", "status", "score_locked"]].to_parquet(out, index=False)
     pm = cfg["permutation"]
 
     def test(col):                                              # 같은 칸·같은 시드로 라벨 섞기
@@ -126,7 +136,9 @@ if __name__ == "__main__":
         return permutation_test(s[col], s["grade"], strata, pm["n"], pm["seed"])
 
     diff, p, shuffled = test("score")                           # 판정
-    verdict = "지지" if p < pm["alpha"] else "미지지"
+    verdict = None if alpha is None else ("지지" if p < alpha else "미지지")
+    verdict_line = ("같은 쌍 v1 비교는 참고라 판정하지 않는다 (19장)" if alpha is None
+                    else f"판정 (p < {alpha}): **H1 {verdict}**")
     summ = summarize(h)
     diff_l, p_l, _ = test("score_locked")                       # 민감도: 잠근 원래 규칙 (16장)
     summ_l = summarize(h, "score_locked")
@@ -134,10 +146,10 @@ if __name__ == "__main__":
     commit = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
     dirty = bool(subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True).stdout.strip())
     stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
-    folder = RUNS / f"{stamp}_h1"
+    folder = RUNS / f"{stamp}_h1{tag}"
     folder.mkdir(parents=True, exist_ok=True)
     pct = lambda r, k: f"{r[k]:.1%} [{r[k + '_ci'][0]:.1%}, {r[k + '_ci'][1]:.1%}]"
-    lines = [f"# H1 (Step 9) {stamp}",
+    lines = [f"# H1 (Step 9) {stamp}", mode["label"],
              f"커밋 {commit}{' (커밋 안 된 변경 있음)' if dirty else ''} · 고정 커밋 {lock['git_commit'][:7]} · "
              f"컷오프 {lock['lower']:.5f} / {lock['upper']:.5f} · 기간 {lock['h1_window_months']}개월", "",
              "| 등급 | R | 점수 매김 | 다음 리포트 없음 | 기준가 조정 | 비교 불가 | 하향 | 유지 | 상향 | 평균 점수 |",
@@ -148,7 +160,7 @@ if __name__ == "__main__":
     lines += ["", f"차이 = C 평균 − A 평균 = **{diff:+.4f}**",
               f"라벨 섞기 {pm['n']:,}회 (칸: 게시 연월 × 업종, 시드 {pm['seed']}): p = **{p:.4f}** "
               f"(섞은 차이 중간값 {np.median(shuffled):+.4f}, 5% 지점 {np.quantile(shuffled, 0.05):+.4f})",
-              f"판정 (p < {pm['alpha']}): **H1 {verdict}**", "", "구간은 Wilson 95%이고 판정에 쓰지 않는다.", "",
+              verdict_line, "", "구간은 Wilson 95%이고 판정에 쓰지 않는다.", "",
               "## 민감도 분석: 잠근 원래 규칙 (16장, N의 목표가나 의견이 하나라도 없으면 제외, 판정에 쓰지 않음)",
               "| 등급 | 점수 매김 | 빠진 값 등으로 제외 | 평균 점수 |", "|---|---|---|---|"]
     for g, r in summ_l.items():
@@ -156,9 +168,10 @@ if __name__ == "__main__":
     lines += ["", f"차이 = **{diff_l:+.4f}**, p = **{p_l:.4f}**"]
     (folder / "h1.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     shutil.copy(CONFIG, folder / "config.yaml")
-    shutil.copy(CUTOFFS, folder / "cutoffs.json")
+    shutil.copy(cut_path, folder / cut_path.name)
     (folder / "h1.json").write_text(json.dumps(
-        {"diff": diff, "p": p, "verdict": verdict, "summary": summ, "shuffled": shuffled.round(6).tolist(),
+        {"mode": tag or "_v1", "label": mode["label"], "alpha": alpha,
+         "diff": diff, "p": p, "verdict": verdict, "summary": summ, "shuffled": shuffled.round(6).tolist(),
          "locked_rule": {"diff": diff_l, "p": p_l, "summary": summ_l},
          "commit": commit, "dirty": dirty, "n_perm": pm["n"], "seed": pm["seed"]},
         ensure_ascii=False, indent=1), encoding="utf-8")
