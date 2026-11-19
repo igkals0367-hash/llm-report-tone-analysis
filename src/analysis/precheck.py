@@ -52,6 +52,20 @@ def short_shares(grades, n_r, n_p, max_sentences):
     return {g: float(short[grades == g].mean()) for g in ["A", "B", "C"]}
 
 
+def short_concentrated(sh, ratio_min):
+    """문장 수 몰림 판정 (8장 Step 7): A와 C 각각에서 짧은 쌍 비율이 0보다 크고 B의 ratio_min배 이상이면 몰림.
+    짧은 쌍이 하나도 없으면(0%) 몰림이 아니다. B가 0이고 A·C에만 있으면 몰림이다 (2026-11-19 명확히 함).
+    나눗셈 대신 곱셈으로 비교해 B가 0일 때도 그대로 계산한다."""
+    return all(sh[g] > 0 and sh[g] >= ratio_min * sh["B"] for g in ["A", "C"])
+
+
+def times_b(share, share_b):
+    """표에 적을 'B 대비 배수'. B가 0이면 나눌 수 없으므로 짧은 쌍이 있으면 '무한', 없으면 '-'."""
+    if share_b > 0:
+        return f"{share / share_b:.2f}"
+    return "무한" if share > 0 else "-"
+
+
 def md_table(df):
     cols = [df.index.name or ""] + [str(c) for c in df.columns]
     lines = ["| " + " | ".join(cols) + " |", "|" + "---|" * len(cols)]
@@ -102,9 +116,9 @@ def precheck(cfg):
                       index=[f"{i + 1}위" for i in range(pc["broker_top_k"])] + ["합"]).rename_axis("")
     broker_flag = any(top[g].sum() > pc["broker_max_share"] for g in ["A", "C"])
     sh = short_shares(grades, base["r_nid"].map(n_sent), base["p_nid"].map(n_sent), pc["short_max_sentences"])
-    ratio = {g: (sh[g] / sh["B"] if sh["B"] > 0 else float("inf")) for g in ["A", "C"]}
-    short_flag = all(ratio[g] >= pc["short_ratio"] for g in ["A", "C"])
-    st = pd.DataFrame({g: [f"{sh[g]:.1%}", f"{ratio[g]:.2f}" if g in ratio else "1"] for g in ["A", "B", "C"]},
+    ratio = {g: times_b(sh[g], sh["B"]) for g in ["A", "C"]}
+    short_flag = short_concentrated(sh, pc["short_ratio"])
+    st = pd.DataFrame({g: [f"{sh[g]:.1%}", ratio[g] if g in ratio else "1"] for g in ["A", "B", "C"]},
                       index=["짧은 요약 쌍 비율", "B 대비 배수"]).rename_axis("")
     sizes = grades.value_counts().reindex(["A", "B", "C"]).to_dict()
     out += ["\n## ② 증권사·문장 수 쏠림 (기준선 임시 등급)",

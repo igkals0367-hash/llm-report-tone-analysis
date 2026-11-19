@@ -1,7 +1,8 @@
 """Step 7 고정 전 점검 (8장): 다음 리포트 찾기, 3개월 창, 쏠림 계산."""
 import pandas as pd
 
-from src.analysis.precheck import broker_top_shares, next_report_date, short_shares, within_window
+from src.analysis.precheck import (broker_top_shares, next_report_date, short_concentrated, short_shares,
+                                   within_window)
 
 D = pd.Timestamp
 
@@ -30,3 +31,10 @@ def test_concentration_numbers():
     assert top["A"].to_dict() == {"k": 1.0}
     sh = short_shares(grades, pd.Series([1, 5, 5, 5, 2, 5]), pd.Series([5, 5, 5, 5, 5, 1]), 2)
     assert sh == {"A": 0.5, "B": 0.0, "C": 1.0}
+
+
+def test_short_concentration_needs_short_pairs():   # 2026-11-19: 짧은 쌍이 하나도 없으면 몰림이 아니다
+    assert not short_concentrated({"A": 0.0, "B": 0.0, "C": 0.0}, 2.0)      # v2 기준선: 0 ÷ 0을 몰림으로 보던 경우
+    assert short_concentrated({"A": 0.1, "B": 0.0, "C": 0.1}, 2.0)          # B에는 없고 A·C에만 있으면 몰림
+    assert short_concentrated({"A": 0.2, "B": 0.1, "C": 0.25}, 2.0)         # 둘 다 2배 이상
+    assert not short_concentrated({"A": 0.15, "B": 0.1, "C": 0.3}, 2.0)     # A가 2배 미만
