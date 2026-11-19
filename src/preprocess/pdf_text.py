@@ -3,7 +3,9 @@
 입력: data/raw/pdf_text/<nid>.txt (pdf_manifest.csv에서 ok인 리포트). 출력: data/interim/sentences_pdf.parquet
 사용: python -m src.preprocess.pdf_text                (전체)
       python -m src.preprocess.pdf_text --check 74859  (한 리포트의 남김·뺌 이유를 data/interim/pdf_check_<nid>.txt에 쓴다.
-                                                       원문이 들어 있으니 직접 열어 보기만 하고 대화창에는 붙이지 않는다)"""
+                                                       원문이 들어 있으니 직접 열어 보기만 하고 대화창에는 붙이지 않는다)
+      python -m src.preprocess.pdf_text --review       (정형 문구 종류별 예시를 data/interim/pdf_boilerplate.txt에 쓰고
+                                                       화면에는 숫자만 낸다. 전체 실행 뒤에 쓴다. 파일은 원문이라 붙이지 않는다)"""
 import pathlib
 import re
 import sys
@@ -119,10 +121,52 @@ def check(nid, cfg):
     return path
 
 
+def review(cfg):
+    """(b) 확인용 (19장 Step 4b 확인). 정형 문구 종류마다 나온 리포트 수, 증권사 수, 뺀 문장 수, 글자 수(공백·숫자 뺌)와
+    예시 문장 하나를 표로 돌려준다. 여러 증권사에 나오는 짧은 문구는 분석 문장이 섞였을 수 있는 자리다."""
+    pc = cfg["pdf"]
+    _, split, _ = split_all(pc)
+    bodies = {nid: body for nid, (_, body) in split.items()}
+    bp = boilerplate(bodies, pc)
+    broker = pd.read_parquet(REPORTS, columns=["nid", "broker_name"]).set_index("nid")["broker_name"]
+    info = {k: {"reports": set(), "brokers": set(), "sentences": 0, "example": None} for k in bp}
+    for nid, body in bodies.items():
+        for s in body:
+            e = info.get(key(s))
+            if e is not None:
+                e["reports"].add(nid)
+                e["brokers"].add(broker.get(nid))
+                e["sentences"] += 1
+                e["example"] = e["example"] or s
+    t = pd.DataFrame([{"증권사": len(e["brokers"]), "리포트": len(e["reports"]), "뺀 문장": e["sentences"],
+                       "글자": len(k), "예시": e["example"]} for k, e in info.items()],
+                     columns=["증권사", "리포트", "뺀 문장", "글자", "예시"])
+    return t.sort_values(["증권사", "리포트"], ascending=False)
+
+
 if __name__ == "__main__":
     cfg = load_config()
     if len(sys.argv) > 2 and sys.argv[1] == "--check":
         print("확인 파일:", check(int(sys.argv[2]), cfg))
+        sys.exit()
+    if sys.argv[1:] == ["--review"]:
+        t = review(cfg)
+        path = OUT.parent / "pdf_boilerplate.txt"
+        path.write_text("\n".join(f"[증권사 {x[0]} · 리포트 {x[1]} · 뺀 문장 {x[2]} · {x[3]}자] {x[4]}"
+                                  for x in t.itertuples(index=False)), encoding="utf-8")
+        brokers = pd.cut(t["증권사"], [0, 1, 4, float("inf")], labels=["1곳", "2~4곳", "5곳 이상"])
+        length = pd.cut(t["글자"], [0, 19, 49, float("inf")], labels=["20자 미만", "20~49자", "50자 이상"])
+        print("정형 문구 종류 수 (줄: 나온 증권사 수, 칸: 글자 수)")
+        print(pd.crosstab(brokers, length, margins=True, margins_name="합", dropna=False).to_string(), "\n")
+        print("뺀 문장 수")
+        print(pd.crosstab(brokers, length, values=t["뺀 문장"], aggfunc="sum", margins=True, dropna=False,
+                          margins_name="합").fillna(0).astype(int).to_string(), "\n")
+        per = pd.read_parquet(OUT, columns=["nid"]).groupby("nid").size()
+        names = pd.read_parquet(REPORTS, columns=["nid", "broker_name"]).set_index("nid")["broker_name"]
+        few = per[per <= 5]
+        print(f"v1 전처리 뒤 문장 5개 이하 리포트 {len(few)}개 (제목만 남은 리포트 {int((per == 1).sum())}개)")
+        print("증권사별:", names.reindex(few.index).value_counts().head(5).to_dict())
+        print("예시 파일:", path)
         sys.exit()
     out, lines_stat, sent_stat, n_bp = build(cfg)
     total = sum(lines_stat.values())
