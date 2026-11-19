@@ -1,5 +1,7 @@
 """Step 7 고정 전 점검 (8장). 결과(다음 리포트의 목표가 방향, 수익률)는 읽지 않는다.
-쓰는 정보는 18장이 정한 것뿐이다: 게시일, 의견, 목표가, 증권사, 문장 수, 톤 변화, 다음 리포트까지 걸린 날 수."""
+쓰는 정보는 18장이 정한 것뿐이다: 게시일, 의견, 목표가, 증권사, 문장 수, 톤 변화, 다음 리포트까지 걸린 날 수.
+v2(text_source: pdf)는 pairs_pdf·tone_pdf를 읽고 runs/<시각>_precheck_pdf/에 쓴다. v2는 쏠림 점검만 다시 판정하고
+H1 기간은 v1에서 정한 값을 그대로 쓴다 (19장 고정 전 점검)."""
 import datetime as dt
 import json
 import pathlib
@@ -9,13 +11,21 @@ import subprocess
 import pandas as pd
 
 from src.classify.grade import assign_grade, fit_cutoffs
-from src.config import load_config
+from src.config import load_config, source_path
 
 PAIRS = pathlib.Path("data/processed/pairs.parquet")
 REPORTS = pathlib.Path("data/processed/reports.parquet")
 TONE = pathlib.Path("data/processed/tone.parquet")
 CONFIG = pathlib.Path("configs/default.yaml")
 RUNS = pathlib.Path("runs")
+NOTES = {   # ③ 표본 수 뒤에 붙이는 설명, ④ 전처리 설명. 글 출처마다 다르다
+    "summary": ("(어림 약 1,200), 검증 {v:,}쌍 (어림 약 2,800). 검증이 적은 이유는 14장·15장에 기록.",
+                "Step 4 확인에서 고친 것: 네이버 종목명 자동 추가, 'TP'는 단독일 때만, 문장 중간 줄바꿈 잇기, "
+                "글자 없는 문장 버리기 (16장 '전처리 보완'). 무작위 30건 원문 대조 이상 없음."),
+    "pdf": ("(v1 1,228), 검증 {v:,}쌍 (v1 2,119). PDF에서 한글이 나오지 않은 미래에셋증권 리포트가 든 쌍을 뺐다 "
+            "(19장 빠지는 쌍).",
+            "Step 4b 확인: 정리 기준(숫자·기호 50%, 한글 10자, 정형 문구 리포트 20개)은 고치지 않았다 (19장 Step 4b)."),
+}
 
 
 def next_report_date(pairs, reports):
@@ -53,9 +63,10 @@ def md_table(df):
 def precheck(cfg):
     """네 점검을 계산해 runs/<실행 시각>_precheck/에 기록하고, 판정을 돌려준다 (8장 Step 7)."""
     pc = cfg["precheck"]
-    pairs = pd.read_parquet(PAIRS)
+    pairs = pd.read_parquet(source_path(PAIRS, cfg))
+    source = cfg.get("text_source", "summary")                  # source_path가 값을 이미 확인했다
     reports = pd.read_parquet(REPORTS, columns=["nid", "write_date", "broker_code", "broker_name", "item_code"])
-    n_sent = pd.read_parquet(TONE, columns=["nid", "n_sentences"]).set_index("nid")["n_sentences"]
+    n_sent = pd.read_parquet(source_path(TONE, cfg), columns=["nid", "n_sentences"]).set_index("nid")["n_sentences"]
     names = reports.drop_duplicates("broker_code").set_index("broker_code")["broker_name"]
     out = []
 
@@ -73,10 +84,13 @@ def precheck(cfg):
                         "걸린 날 중간값": f"{gap[m].median():.0f}"}
     h1_share = float(within_window(pairs["write_date"], n_date, win)[pairs["period"] == "validation"].mean())
     h1_ok = h1_share >= pc["h1_min_share"]
-    out += ["## ① H1 기간", md_table(pd.DataFrame(rows).T.rename_axis("기간")),
-            f"\n판정 (검증 R 기준): {win}개월 안 {h1_share:.1%} → "
-            + (f"{pc['h1_min_share']:.0%} 이상이라 **{win}개월로 고정**" if h1_ok else
-               f"{pc['h1_min_share']:.0%} 미만이라 **{pc['h1_alt_window_months']}개월로 넓히고 검증 끝을 한 달 당김**")]
+    if source == "pdf":
+        verdict = f"\nv2는 다시 판정하지 않는다 (19장): **{win}개월 그대로**. 참고로 검증 R {win}개월 안 {h1_share:.1%}"
+    else:
+        verdict = (f"\n판정 (검증 R 기준): {win}개월 안 {h1_share:.1%} → "
+                   + (f"{pc['h1_min_share']:.0%} 이상이라 **{win}개월로 고정**" if h1_ok else
+                      f"{pc['h1_min_share']:.0%} 미만이라 **{pc['h1_alt_window_months']}개월로 넓히고 검증 끝을 한 달 당김**"))
+    out += ["## ① H1 기간", md_table(pd.DataFrame(rows).T.rename_axis("기간")), verdict]
 
     # ② 쏠림: 기준선 임시 등급 (Step 8과 같은 계산, 아직 고정 아님)
     base = pairs[pairs["period"] == "baseline"].reset_index(drop=True)
@@ -105,19 +119,16 @@ def precheck(cfg):
     # ③ 표본 수, ④ 전처리
     per = pairs["period"].value_counts()
     out += ["\n## ③ 표본 수",
-            f"기준선 {per.get('baseline', 0):,}쌍 (어림 약 1,200), 검증 {per.get('validation', 0):,}쌍 (어림 약 2,800). "
-            "검증이 적은 이유는 14장·15장에 기록.",
-            "\n## ④ 전처리",
-            "Step 4 확인에서 고친 것: 네이버 종목명 자동 추가, 'TP'는 단독일 때만, 문장 중간 줄바꿈 잇기, "
-            "글자 없는 문장 버리기 (16장 '전처리 보완'). 무작위 30건 원문 대조 이상 없음."]
+            f"기준선 {per.get('baseline', 0):,}쌍 " + NOTES[source][0].format(v=per.get("validation", 0)),
+            "\n## ④ 전처리", NOTES[source][1]]
 
     commit = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
     dirty = bool(subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True).stdout.strip())
     stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
-    folder = RUNS / f"{stamp}_precheck"
+    folder = source_path(RUNS / f"{stamp}_precheck", cfg)        # v2는 <시각>_precheck_pdf
     folder.mkdir(parents=True, exist_ok=True)
     head = [f"# 고정 전 점검 (Step 7) {stamp}", f"커밋 {commit or '?'}{' (커밋 안 된 변경 있음)' if dirty else ''} · "
-            f"모델 리비전 {cfg['model']['revision']}", ""]
+            f"모델 리비전 {cfg['model']['revision']} · 글 출처 {source}", ""]
     (folder / "precheck.md").write_text("\n".join(head + out) + "\n", encoding="utf-8")
     shutil.copy(CONFIG, folder / "config.yaml")
     result = {"h1_window_months": win, "h1_share_validation": h1_share, "h1_window_ok": h1_ok, "cutoffs": cut,
