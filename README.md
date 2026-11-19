@@ -12,6 +12,9 @@ The answer from this data: **no, not detectably.** Both pre-registered hypothese
 long-short backtest built on the signal loses money after costs. All rules were fixed before the results were seen,
 the classification was locked in code, and every deviation from the plan is disclosed below.
 
+**v2.** The study was repeated on the same pairs with the full PDF body instead of the summary, under a stricter
+threshold (p < 0.025). Neither hypothesis was supported again; see [v2](#v2-the-same-test-with-the-pdf-body).
+
 ## Question and hypotheses
 
 **Signal.** Tone change = tone of this report − tone of the previous report by the same broker on the same stock.
@@ -33,7 +36,7 @@ a market that had already priced the information. H1 checks the classification w
 
 | Item | Choice |
 |---|---|
-| Reports | Naver Pay Securities research list (title + summary, no PDF body), 2023-01 to 2026-11 |
+| Reports | Naver Pay Securities research list (title + summary, no PDF body), 2023-01 to 2026-11. v2 adds the PDF body |
 | Prices | KRX daily returns and market caps via [pykrx](https://github.com/sharebook-kr/pykrx) |
 | Universe | Top 200 common stocks by market cap (KOSPI + KOSDAQ), checked on the posting date |
 | Sample | Reports where this and the previous report (same broker, same stock, ≤ 6 months apart) both kept Buy and the same target price |
@@ -155,11 +158,77 @@ same data would not be a fair test. They are leads for future work, not findings
    random-label range; trading costs and borrow fees (about 11–14 pp over the period at 60-day holding, more at 20-day
    holding because positions turn over three times as often) are paid regardless.
 
+## v2: the same test with the PDF body
+
+The biggest limitation of v1 was that it read only the title and Naver's short summary. v2 repeats the study on the
+same pairs with the title plus the **full PDF body**, and keeps every other rule. It was planned and locked the same
+way before its results were computed. Because the outcome data (next reports, returns) had already been seen in v1,
+the verdict threshold is halved to **p < 0.025** (Bonferroni for a second attempt on the same outcomes).
+
+| Item | v2 |
+|---|---|
+| Text | Title + PDF body, extracted with [pdfminer.six](https://github.com/pdfminer/pdfminer.six) layout analysis so that side-by-side tables and prose stay apart. The Naver summary is not used (it mostly repeats the first page) |
+| Cleaning | Drop lines that are mostly digits and symbols (≥ 50%) or short without a sentence end (< 10 Korean characters); drop sentences that appear in ≥ 20 different reports (disclaimers, rating definitions, templates); then the v1 preprocessing |
+| Sample | The v1 pairs minus those with a report whose PDF has no extractable Korean text: 262 of 4,952 PDFs, all from one broker (Mirae Asset, 73% of its reports; the body is embedded as images). 1,153 baseline and 1,982 validation pairs remain (6.3% fewer) |
+| Text volume | Median 29 sentences per report after cleaning (v1: about 7) |
+| Cutoffs | Re-fit on the v2 baseline: A > 0.08542, C < −0.08017 (`models/cutoffs_pdf.json`, git tag `classification-lock-pdf`). Validation grades: A 654, B 664, C 664 |
+| Same-pairs comparison | v1 grades recomputed on the v2 pairs only, to separate "different text" from "different sample". Reference, no verdict |
+
+### v2 results: not supported
+
+| | v1, all pairs | v1 grades, v2 pairs | v2 (PDF body) |
+|---|---|---|---|
+| H1: mean score C − A | −0.055 | −0.047 | −0.060 |
+| &nbsp;&nbsp;explained by month × sector mix | −0.024 | −0.032 | −0.012 |
+| &nbsp;&nbsp;within-cell remainder | −0.031 | −0.015 | −0.049 |
+| &nbsp;&nbsp;permutation p | 0.151 | 0.334 | 0.052 |
+| H2: 60-day CAR C − A | −0.84 pp | −1.43 pp | +0.01 pp |
+| &nbsp;&nbsp;explained by month × sector mix | −0.90 pp | −1.30 pp | −0.03 pp |
+| &nbsp;&nbsp;permutation p | 0.53 | 0.45 | 0.52 |
+| Verdict | Not supported (p < 0.05) | Reference only | Not supported (p < 0.025) |
+| Backtest, executable, 60 days (before / after costs) | −1.43% / −12.09% | — | −6.96% / −17.01% |
+
+"Explained by month × sector mix" is the median gap when labels are shuffled within posting month × sector cells,
+i.e. what timing and sector alone produce. The within-cell remainder is the actual gap minus that.
+
+- **Both hypotheses remain unsupported.** Reading the whole report did not reveal a hidden sell signal.
+- **H1 moved the expected way, but not past the threshold.** On the same pairs, the part of the gap that month × sector
+  cannot explain grew from −0.015 (v1 grades) to −0.049 (v2 grades), and p fell from 0.33 to 0.052. Body tone may carry
+  a little more information about the same broker's next revision than the summary does. This is an observation, not
+  a finding: the threshold was set in advance and was not met.
+- **H2 did not move.** v1's C − A gap was almost entirely month × sector mix. v2 grades are less concentrated in
+  particular months and sectors, and within the same cell A and C stocks earned the same. As in v1, C stocks had
+  already fallen more before publication (−1.14% vs −0.28% over the previous 20 trading days; a check, not tested).
+- **Backtest.** The A − C daily sum (long side + short side) is −11.5%, inside the v1 random-label range (mean +1.2%,
+  standard deviation 19.7%). The pre-specified 5% per-stock cap version: −3.43% before and −13.29% after costs. The
+  market reference is the same as in v1 (+35.21%).
+
+![v2 H2: cumulative abnormal return](reports/figures/fig1_h2_car_pdf.png)
+![v2 H1: next report](reports/figures/fig2_h1_next_report_pdf.png)
+![v2 permutation tests](reports/figures/fig3_permutation_pdf.png)
+![v2 backtest](reports/figures/fig4_backtest_pdf.png)
+![v2 checks](reports/figures/fig5_checks_pdf.png)
+![v2 capped backtest](reports/figures/fig6_backtest_cap_pdf.png)
+
+**Decisions made during v2, all before its lock:**
+
+1. More than 5% of pairs dropped because of the image-only PDFs (6.1% baseline, 6.5% validation), which the plan said
+   required a new decision. The pairs were dropped; OCR for one broker and filling those pairs with the summary were
+   rejected. The same-pairs comparison above was added to show the effect of the smaller sample.
+2. The pre-lock check for short texts flagged a concentration because A, B and C all had 0% short pairs (0 ÷ 0 was
+   treated as infinite). The rule was clarified to require a share above zero; the first record is kept in `runs/`.
+
+**v2 limitations.** It is a second measurement on outcome data already seen, and its rules were written knowing the
+v1 results. One broker is mostly excluded. PDF extraction is imperfect: words broken across lines are joined with a
+space, and about 1% of sentences are financial-statement labels that survived cleaning. The model and the absence of
+human validation are the same as in v1.
+
 ## Limitations
 
 - **No human validation.** Tone scores were not checked against human judgment. The model was trained on general
   financial sentiment, not analyst wording, and may miss conditional or indirect negatives.
-- **Title and summary only.** Negative points that appear only in the PDF body are missed.
+- **Title and summary only (v1).** Negative points that appear only in the PDF body are missed. v2 reads the body,
+  with its own limitations (see v2).
 - **Noisy signal.** Tone change is a difference of two noisy measurements; a report that stays lukewarm shows no change.
 - **Smaller sample than planned.** 2,119 validation pairs against an estimate of about 2,800, so the tests have less power.
 - **Short window, unusual market.** About 26 months, a third of it under a full short-selling ban, with sharp market drops in 2026.
@@ -175,10 +244,10 @@ same data would not be a fair test. They are leads for future work, not findings
 
 ```text
 configs/            settings, company aliases, opinion ranks, sector groups
-models/cutoffs.json locked cutoffs (do not edit)
+models/            locked cutoffs: cutoffs.json (v1), cutoffs_pdf.json (v2); do not edit
 src/
-  ingest/           Step 1   Naver reports, KRX prices
-  preprocess/       Step 2-4 clean reports, universe, sample pairs, text
+  ingest/           Step 1   Naver reports, KRX prices; 1b PDFs (v2)
+  preprocess/       Step 2-4 clean reports, universe, sample pairs, text; 4b PDF text (v2)
   classify/         Step 5-8 sentence tone, tone change, grades and lock
   analysis/         Step 7, 9, 10  pre-lock checks, H1, H2, permutation test
   strategy/         decide(): signal -> target weights (same function for backtest and live)
@@ -189,7 +258,7 @@ src/
 runs/               one folder per run: config copy, commit, results
 reports/figures/    figures in this README
 tests/              pytest: look-ahead, A/C symmetry, reproducibility, rules
-tools/              local development dashboard (reads data/, not part of the results)
+tools/              development dashboard, PDF diagnostics (read data/, not part of the results)
 PROGRESS.md         development log (Korean)
 ```
 
@@ -216,14 +285,17 @@ files and stops if they are missing.
 | H1, H2 | `python -m src.analysis.h1`<br>`python -m src.analysis.h2` | 9-10 |
 | Backtest | `python -m src.backtest.verify`<br>`python -m src.backtest.verify --cap`<br>`python -m src.backtest.report` | 11 |
 | Figures | `python -m src.viz.figures` | 12 |
+| v2 (PDF body) | set `text_source: pdf` in `configs/default.yaml`, then<br>`python -m src.ingest.pdf`<br>`python -m src.preprocess.pdf_text`<br>and Steps 5-12 as above (the engine check is not rerun). Add `--v1same` to the H1 and H2 commands for the same-pairs comparison | 1b-12 |
 | Tests | `python -m pytest -q` (no data needed) | — |
 
-All settings (periods, cutoff percentiles, holding days, costs, seeds, model revision) are in `configs/default.yaml`.
+All settings (periods, cutoff percentiles, holding days, costs, seeds, model revision, text source) are in
+`configs/default.yaml`. With `text_source: pdf`, every step reads and writes files with a `_pdf` suffix and leaves the
+v1 files untouched.
 
 ## Data and license
 
 - The code is released under the [MIT License](LICENSE).
-- **Report titles and summaries are not included.** They are the work of the brokerages that wrote them.
+- **Report titles, summaries and PDF texts are not included.** They are the work of the brokerages that wrote them.
   `data/` (raw and processed data), `.env` and model weights are excluded from the repository; `runs/` holds only
   aggregate numbers.
 - The model is downloaded from Hugging Face at revision `f8586286cc3161fb648e9fee09a456069fd846d0` and is not redistributed here.
