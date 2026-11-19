@@ -1,0 +1,23 @@
+{
+  "h1_window_months": 3,
+  "h1_share_validation": 0.8203834510595358,
+  "h1_window_ok": true,
+  "cutoffs": [
+    -0.08017473744346937,
+    0.08542088814536879
+  ],
+  "broker_flag": false,
+  "short_flag": true,
+  "short_shares": {
+    "A": 0.0,
+    "B": 0.0,
+    "C": 0.0
+  },
+  "broker_top_sum": {
+    "A": 0.3515625,
+    "B": 0.35064935064935066,
+    "C": 0.37239583333333337
+  },
+  "commit": "691efa54269f9c8342157b253e6d11f8b0b47e74",
+  "dirty": true
+}
