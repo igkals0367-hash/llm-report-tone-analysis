@@ -1,17 +1,21 @@
 """Step 10 H2 (9장): C 리포트 종목의 60거래일 누적 초과수익이 A 리포트 종목보다 낮은가.
-분류 고정 뒤에만 돈다 (18장). 판정은 60거래일·양 끝 1% 누르기·라벨 섞기로만 한다."""
+분류 고정 뒤에만 돈다 (18장). 판정은 60거래일·양 끝 1% 누르기·라벨 섞기로만 한다.
+v2(text_source: pdf)는 _pdf 등급·컷오프로 p < 0.025 판정, --v1same은 v1 등급으로 v2에 남은 쌍만 계산하는 참고 비교 (19장).
+사용: python -m src.analysis.h2            (설정의 글 출처로 판정)
+      python -m src.analysis.h2 --v1same   (같은 쌍 v1 비교, v2 고정 뒤에만)"""
 import datetime as dt
 import json
 import pathlib
 import shutil
 import subprocess
+import sys
 
 import numpy as np
 import pandas as pd
 
-from src.analysis.guard import CUTOFFS, require_lock
+from src.analysis.guard import CUTOFFS, analysis_mode, require_lock
 from src.analysis.permutation import permutation_test
-from src.config import load_config
+from src.config import load_config, source_path
 from src.preprocess.pairs import validation_end
 from src.preprocess.universe import load_daily
 
@@ -78,11 +82,15 @@ def in_universe(dates, codes, universe, T):
     return (i >= 0) & key.isin(pd.MultiIndex.from_frame(universe[["date", "item_code"]]))
 
 
-def cumulative_abnormal_returns(pairs, daily, universe, cfg):
-    """검증 A·C 리포트의 누적 초과수익 표 (9장 Step 10). → (리포트별 표, car 행렬, 거래일, (T, col, cum))"""
-    require_lock()                                              # 분류 고정 전이면 여기서 멈춘다
+def cumulative_abnormal_returns(pairs, daily, universe, cfg, keep=None):
+    """검증 A·C 리포트의 누적 초과수익 표 (9장 Step 10). → (리포트별 표, car 행렬, 거래일, (T, col, cum))
+    등급·컷오프는 cfg의 글 출처를 따른다(v2는 _pdf). keep을 주면 그 r_nid만 남긴다(같은 쌍 v1 비교, 19장)."""
+    require_lock(source_path(CUTOFFS, cfg))                     # 분류 고정 전이면 여기서 멈춘다
     h = cfg["h2"]["horizon_days"]
-    ac = (pd.read_parquet(GRADES).query("grade in ['A', 'C']")[["r_nid", "grade"]]
+    grades = pd.read_parquet(source_path(GRADES, cfg))
+    if keep is not None:
+        grades = grades[grades["r_nid"].isin(keep)]
+    ac = (grades.query("grade in ['A', 'C']")[["r_nid", "grade"]]
           .merge(pairs[["r_nid", "write_date", "item_code", "sector"]], on="r_nid", how="left").reset_index(drop=True))
     T, col, cum = abnormal_cumsum(daily, universe)
     e, car, pre = event_cars(T, col, cum, ac["write_date"], ac["item_code"], h)
@@ -100,14 +108,16 @@ def to_long(meta, car, group):
 
 
 if __name__ == "__main__":
-    cfg = load_config()
-    lock = require_lock()
+    mode = analysis_mode(load_config(), v1same="--v1same" in sys.argv[1:])
+    cfg, tag, alpha = mode["cfg"], mode["tag"], mode["alpha"]  # v1same이면 cfg는 v1(summary) 설정
+    cut_path = source_path(CUTOFFS, cfg)
+    lock = require_lock(cut_path)
     h2, pm = cfg["h2"], cfg["permutation"]
     H, AUX = h2["horizon_days"], h2["aux_horizon_days"]
-    pairs = pd.read_parquet(PAIRS)
+    pairs = pd.read_parquet(source_path(PAIRS, cfg))
     daily = load_daily(["date", "item_code", "ret"])
     universe = pd.read_parquet(UNIVERSE)
-    ac, car, (T, col, cum) = cumulative_abnormal_returns(pairs, daily, universe, cfg)
+    ac, car, (T, col, cum) = cumulative_abnormal_returns(pairs, daily, universe, cfg, mode["keep"])
 
     # 중립 참고선: 검증 기간 중립 의견 리포트 중 게시일 유니버스 (5장, 16장). 검정에는 쓰지 않는다
     rep = pd.read_parquet(REPORTS, columns=["nid", "write_date", "item_code", "is_neutral_ref"])
@@ -118,8 +128,9 @@ if __name__ == "__main__":
     nt["entry_date"] = T[ne]
     nt["kept"] = dedup(ne, nt["item_code"], nt["r_nid"], H)
 
-    OUT.parent.mkdir(parents=True, exist_ok=True)
-    pd.concat([to_long(ac, car, ac["grade"]), to_long(nt, ncar, "N")]).to_parquet(OUT, index=False)
+    out = OUT.with_name(f"{OUT.stem}{tag}{OUT.suffix}")         # h2.parquet, h2_pdf.parquet, h2_v1same.parquet
+    out.parent.mkdir(parents=True, exist_ok=True)
+    pd.concat([to_long(ac, car, ac["grade"]), to_long(nt, ncar, "N")]).to_parquet(out, index=False)
 
     k = ac["kept"].to_numpy()
     s, c = ac[k].reset_index(drop=True), car[k]
@@ -132,7 +143,9 @@ if __name__ == "__main__":
         return {"A": float(values[~is_c].mean()), "C": float(values[is_c].mean()), "diff": d, "p": p}, sh
 
     main, shuffled = test(W[:, H - 1])                           # 판정: 60거래일, 1%
-    verdict = "지지" if main["p"] < pm["alpha"] else "미지지"
+    verdict = None if alpha is None else ("지지" if main["p"] < alpha else "미지지")
+    verdict_line = ("같은 쌍 v1 비교는 참고라 판정하지 않는다 (19장)" if alpha is None
+                    else f"판정 (p < {alpha}): **H2 {verdict}**")
     aux_w, _ = test(winsorize(c[:, H - 1], h2["aux_winsor_pct"]))   # 보조: 60거래일, 5%
     aux_d, _ = test(W[:, AUX - 1])                               # 보조: 20거래일, 1%
     raw = {"A": float(c[~is_c, H - 1].mean()), "C": float(c[is_c, H - 1].mean())}
@@ -152,10 +165,10 @@ if __name__ == "__main__":
     commit = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
     dirty = bool(subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True).stdout.strip())
     stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
-    folder = RUNS / f"{stamp}_h2"
+    folder = RUNS / f"{stamp}_h2{tag}"
     folder.mkdir(parents=True, exist_ok=True)
     row = lambda name, r: f"| {name} | {r['A']:+.2%} | {r['C']:+.2%} | {r['diff']:+.2%} | {r['p']:.4f} |"
-    lines = [f"# H2 (Step 10) {stamp}",
+    lines = [f"# H2 (Step 10) {stamp}", mode["label"],
              f"커밋 {commit}{' (커밋 안 된 변경 있음)' if dirty else ''} · 고정 커밋 {lock['git_commit'][:7]} · "
              f"컷오프 {lock['lower']:.5f} / {lock['upper']:.5f}", "",
              "| 등급 | 검증 R | 중복 제거 뒤 | 그중 게시일이 공매도 금지 기간 |", "|---|---|---|---|"]
@@ -168,7 +181,7 @@ if __name__ == "__main__":
               f"누르기 전 {H}거래일 평균: A {raw['A']:+.2%}, C {raw['C']:+.2%}",
               f"라벨 섞기 {pm['n']:,}회 (칸: 게시 연월 × 업종, 시드 {pm['seed']}): 섞은 차이 중간값 "
               f"{np.median(shuffled):+.2%}, 5% 지점 {np.quantile(shuffled, 0.05):+.2%}",
-              f"판정 (p < {pm['alpha']}): **H2 {verdict}**", "", "## 점검 (판정에 쓰지 않음)",
+              verdict_line, "", "## 점검 (판정에 쓰지 않음)",
               f"- 점검 1, {H}거래일 평균: 금지 기간 게시 A {curves['ban_A'][-1]:+.2%} · C {curves['ban_C'][-1]:+.2%}, "
               f"그 뒤 게시 A {curves['after_A'][-1]:+.2%} · C {curves['after_C'][-1]:+.2%}",
               f"- 점검 2, 리포트 직전 {PRE_DAYS}거래일 초과수익(게시일 전날까지, {h2['winsor_pct']}% 누름): "
@@ -176,9 +189,9 @@ if __name__ == "__main__":
               f"- 중립 참고선 {H}거래일: {curves['N'][-1]:+.2%}"]
     (folder / "h2.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     shutil.copy(CONFIG, folder / "config.yaml")
-    shutil.copy(CUTOFFS, folder / "cutoffs.json")
+    shutil.copy(cut_path, folder / cut_path.name)
     (folder / "h2.json").write_text(json.dumps(
-        {"main": main, "verdict": verdict, "aux_winsor": aux_w, "aux_days": aux_d, "raw": raw, "pre": pre,
+        {"mode": tag or "_v1", "label": mode["label"], "alpha": alpha, "main": main, "verdict": verdict, "aux_winsor": aux_w, "aux_days": aux_d, "raw": raw, "pre": pre,
          "counts": counts, "curves": curves, "shuffled": shuffled.round(6).tolist(), "commit": commit, "dirty": dirty},
         ensure_ascii=False, indent=1), encoding="utf-8")
     print("\n".join(lines))
