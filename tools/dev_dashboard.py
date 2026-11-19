@@ -524,8 +524,72 @@ def section_step11():
     return "Step 11 백테스트", "".join(parts)
 
 
+def last_run(kind, base):
+    """runs/*_<kind>/<base>.json 중 가장 최근 기록. 없으면 None."""
+    found = sorted(pathlib.Path("runs").glob(f"*_{kind}/{base}.json"))
+    return json.loads(found[-1].read_text(encoding="utf-8")) if found else None
+
+
+def section_v2():
+    """v2 결과: 제목 + PDF 본문으로 같은 질문을 다시 검정한 결과와 그림 (19장). v2 분류 고정 뒤에만 보인다."""
+    from src.analysis.guard import require_lock                    # 결과는 고정 뒤에만 (18장)
+    try:
+        lock = require_lock(pathlib.Path("models/cutoffs_pdf.json"))
+    except RuntimeError:
+        return None
+    parts = ['<p class="note">판정 기준: v1은 p &lt; 0.05, v2는 p &lt; 0.025 (같은 결과 데이터에 두 번째로 도전하므로 '
+             '둘로 나눔). 같은 쌍 v1은 v2에 남은 쌍만으로 v1 등급을 다시 계산한 참고 비교로, 판정하지 않는다. '
+             '구성 몫 = 같은 달·같은 업종 안에서 라벨을 섞은 차이의 중간값, 종목 몫 = 실제 차이 − 구성 몫.</p>']
+
+    data = {}                                                      # v2 데이터 단계 숫자 (건수만)
+    man = pathlib.Path("data/raw/pdf_manifest.csv")
+    if man.exists():
+        st = pd.read_csv(man).drop_duplicates("nid", keep="last")["status"].value_counts()
+        data["PDF 상태"] = " · ".join(f"{k} {v:,}" for k, v in st.items())
+    pp = pathlib.Path("data/processed/pairs_pdf.parquet")
+    if pp.exists():
+        per = pd.read_parquet(pp, columns=["period"])["period"].value_counts()
+        data["남은 쌍 (기준선 / 검증)"] = f"{per.get('baseline', 0):,} / {per.get('validation', 0):,}"
+    sp = pathlib.Path("data/interim/sentences_pdf.parquet")
+    if sp.exists():
+        data["정리한 문장"] = f"{rows(sp):,}"
+    data["컷오프 (lower / upper)"] = f"{lock['lower']:+.4f} / {lock['upper']:+.4f}"
+    parts.append(table(pd.Series(data, name="v2 데이터").to_frame()))
+
+    cols = {"v1 (제목·요약)": "", "같은 쌍 v1": "_v1same", "v2 (제목·PDF 본문)": "_pdf"}
+    out = {}
+    for name, tag in cols.items():                                 # v1·같은 쌍 v1·v2 결과 비교
+        col = {}
+        for h, kind in [("H1", "h1"), ("H2", "h2")]:
+            r = last_run(f"{kind}{tag}", kind)
+            if r is None:
+                continue
+            m = r if h == "H1" else r["main"]
+            mid = float(pd.Series(r["shuffled"]).median())
+            fmt = "{:+.4f}" if h == "H1" else "{:+.2%}"
+            col[f"{h} 차이 (C − A)"] = fmt.format(m["diff"])
+            col[f"{h} 구성 몫"] = fmt.format(mid)
+            col[f"{h} 종목 몫"] = fmt.format(m["diff"] - mid)
+            col[f"{h} p"] = f"{m['p']:.4f}"
+            col[f"{h} 판정"] = (f"{r['verdict']} (p < {r.get('alpha') or 0.05:g})" if r.get("verdict") else "판정 안 함")
+        bt = last_run(f"backtest{tag}", "backtest") if tag != "_v1same" else None
+        if bt is not None:
+            s = bt["summary"][f"{bt['holds'][0]}|ban"]
+            col["백테스트 60일 실행 가능 (비용 전 / 후)"] = f"{s['gross']['total']:+.2%} / {s['net']['total']:+.2%}"
+        out[name] = col
+    parts.append(table(pd.DataFrame(out).fillna("-")))
+
+    figs = sorted(pathlib.Path("reports/figures").glob("fig*_pdf.png"))   # python -m src.viz.figures (v2)가 만든 그림
+    if not figs:
+        parts.append('<p class="note">v2 그림이 아직 없습니다 (python -m src.viz.figures).</p>')
+    for f in figs:
+        parts.append(f'<p class="note">{html.escape(f.name)}</p>'
+                     f'<img src="data:image/png;base64,{base64.b64encode(f.read_bytes()).decode()}">')
+    return "v2 PDF 본문 결과", "".join(parts)
+
+
 SECTIONS = [section_status, section_step1, section_step2, section_step3, section_step4, section_step5, section_step6,
-            section_step7, section_step8, section_step9, section_step10, section_step11]
+            section_step7, section_step8, section_step9, section_step10, section_step11, section_v2]
 
 
 def kpis():
@@ -599,6 +663,8 @@ def build():
         if title.startswith("Step"):
             num, _, name = name.partition(" ")
             kicker = f"Step {num}"
+        if title.startswith("v2 "):                                 # v2 칸 (19장)
+            kicker, name = "v2", title[3:]
         sub = (fn.__doc__ or "").split("\n")[0].split(":", 1)[-1].strip()
         nav.append(f'<a href="#s{i}"><i>{html.escape(kicker)}</i>{html.escape(name)}</a>')
         blocks.append(f'<section id="s{i}"><h2><small>{html.escape(kicker)}</small>{html.escape(name)}</h2>'

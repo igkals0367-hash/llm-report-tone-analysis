@@ -1,6 +1,7 @@
 """Step 12 결과 그림 5종과 추가 분석 그림 1종 (10장). runs/의 가장 최근 H1·H2·백테스트 기록만 읽어 그린다.
 결과를 새로 계산하지 않으므로 그림의 숫자가 기록과 어긋날 수 없다. 고정 뒤에만 돈다 (18장).
-사용: python -m src.viz.figures  →  reports/figures/fig1~fig6 *.png"""
+v2(text_source: pdf)는 runs/*_h1_pdf 등 v2 기록을 읽고 파일 이름에 _pdf, 제목에 v2 표시를 붙인다 (19장 Step 12).
+사용: python -m src.viz.figures  →  reports/figures/fig1~fig6 *.png (v2는 *_pdf.png)"""
 import json
 import pathlib
 
@@ -11,8 +12,8 @@ import matplotlib.ticker as mtick
 import numpy as np
 import pandas as pd
 
-from src.analysis.guard import require_lock
-from src.config import load_config
+from src.analysis.guard import CUTOFFS, analysis_mode, require_lock
+from src.config import load_config, source_path
 
 RUNS = pathlib.Path("runs")
 OUT = pathlib.Path("reports/figures")
@@ -25,12 +26,20 @@ plt.rcParams.update({"font.family": "DejaVu Sans", "axes.unicode_minus": False, 
                      "text.color": INK, "axes.labelcolor": INK, "xtick.color": INK, "ytick.color": INK,
                      "axes.edgecolor": "#9AA3B5", "axes.titlesize": 10, "axes.titleweight": "bold",
                      "axes.titlelocation": "left", "axes.titlecolor": "#01037B"})
+SRC = {"tag": "", "title": "", "text": "research summaries"}         # 글 출처별 이름표. main에서 set_source로 정한다
 
 
-def latest(kind):
-    found = sorted(RUNS.glob(f"*_{kind}/{kind}.json"))
+def set_source(tag):
+    """v1이면 그대로, v2(tag "_pdf")면 파일 이름에 _pdf, 제목 앞에 v2 표시, 출처 문구를 PDF 본문으로 (19장)."""
+    pdf = tag == "_pdf"
+    SRC.update(tag=tag, title="v2 (PDF body) · " if pdf else "",
+               text="research report titles and PDF bodies" if pdf else "research summaries")
+
+
+def latest(kind, tag=""):
+    found = sorted(RUNS.glob(f"*_{kind}{tag}/{kind}.json"))
     if not found:
-        raise FileNotFoundError(f"runs/*_{kind}/{kind}.json 기록이 없습니다.")
+        raise FileNotFoundError(f"runs/*_{kind}{tag}/{kind}.json 기록이 없습니다.")
     return json.loads(found[-1].read_text(encoding="utf-8")), found[-1].parent.name
 
 
@@ -44,17 +53,25 @@ def style(ax, ygrid=True):
 def save(fig, name, source):
     fig.canvas.draw()                                            # 출처는 그림의 맨 아래(범례 밑)에 붙인다
     bottom = fig.get_tightbbox(fig.canvas.get_renderer()).y0 / fig.get_figheight()
-    fig.text(0.01, bottom - 0.01, f"Source: {source}. Naver Pay Securities research summaries, KRX prices. "
+    fig.text(0.01, bottom - 0.01, f"Source: {source}. Naver Pay Securities {SRC['text']}, KRX prices. "
              "Validation period 2024-07-01 to 2026-08-11.", fontsize=7, color="#9AA3B5", va="top")
     OUT.mkdir(parents=True, exist_ok=True)
-    fig.savefig(OUT / name, dpi=160, bbox_inches="tight", facecolor="white")
+    path = OUT / f"{pathlib.Path(name).stem}{SRC['tag']}.png"     # v1 그림을 덮어쓰지 않게 v2는 _pdf
+    fig.savefig(path, dpi=160, bbox_inches="tight", facecolor="white")
     plt.close(fig)
-    return OUT / name
+    return path
 
 
-def titles(ax, title, sub):
-    """제목과 그 아래 한 줄 설명. 결론 문장은 코드에 박지 않고 기록의 숫자로만 쓴다."""
-    ax.set_title(title, pad=26 if sub.count("\n") else 16)
+def verdict_text(rec, p):
+    """판정 문구. v1 기록(alpha 없음, 0.05)은 예전 그대로, v2는 판정 기준을 함께 적는다."""
+    v = "supported" if rec["verdict"] == "지지" else "not supported"
+    a = rec.get("alpha")
+    return f"permutation p = {p:.2f} ({v})" if a in (None, 0.05) else f"permutation p = {p:.3f} ({v} at p < {a:g})"
+
+
+def titles(ax, title, sub, top=True):
+    """제목과 그 아래 한 줄 설명. 결론 문장은 코드에 박지 않고 기록의 숫자로만 쓴다. v2 표시는 맨 위 제목에만(top)."""
+    ax.set_title((SRC["title"] if top else "") + title, pad=26 if sub.count("\n") else 16)
     ax.text(0, 1.012, sub, transform=ax.transAxes, fontsize=7.5, va="bottom", color=INK)
 
 
@@ -95,9 +112,8 @@ def fig1_car(h2, src):
     ax.set_ylabel("Mean cumulative abnormal return")
     ax.yaxis.set_major_formatter(mtick.PercentFormatter(1.0, decimals=1))
     legend_below(ax, 3)
-    verdict = "supported" if h2["verdict"] == "지지" else "not supported"
     titles(ax, "H2: Cumulative abnormal return after A vs C reports",
-           f"Day 60: C − A = {m['diff']:+.2%}, permutation p = {m['p']:.2f} ({verdict}).   "
+           f"Day 60: C − A = {m['diff']:+.2%}, {verdict_text(h2, m['p'])}.   "
            f"Day 20 (auxiliary): C − A = {aux['diff']:+.2%}, p = {aux['p']:.2f}.\n"
            f"A {h2['counts']['A']['kept']}, C {h2['counts']['C']['kept']} reports after deduplication; "
            "each day winsorized at 1% across A and C.")
@@ -124,10 +140,9 @@ def fig2_h1(h1, src):
     ax.set_ylabel("Share of next reports (same broker, within 3 months)")
     legend_below(ax, 2)
     lr = h1.get("locked_rule")
-    verdict = "supported" if h1["verdict"] == "지지" else "not supported"
     note = f"\nSensitivity (locked missing-value rule): C − A = {lr['diff']:+.3f}, p = {lr['p']:.2f}." if lr else ""
     titles(ax, "H1: How the same broker's next report changed (score −1 / 0 / +1)",
-           f"Mean score C − A = {h1['diff']:+.3f}, permutation p = {h1['p']:.2f} ({verdict}). Error bars: Wilson 95%.{note}")
+           f"Mean score C − A = {h1['diff']:+.3f}, {verdict_text(h1, h1['p'])}. Error bars: Wilson 95%.{note}")
     return save(fig, "fig2_h1_next_report.png", src)
 
 
@@ -151,7 +166,7 @@ def fig3_permutation(h1, h2, src):
         if fmt.endswith("%}"):
             ax.xaxis.set_major_formatter(mtick.PercentFormatter(1.0, decimals=0))
     axes[0].set_ylabel("Count")
-    fig.suptitle("Permutation tests: actual difference vs 1,000 within-cell shuffles", x=0.01, ha="left",
+    fig.suptitle(SRC["title"] + "Permutation tests: actual difference vs 1,000 within-cell shuffles", x=0.01, ha="left",
                  fontsize=10, fontweight="bold", color="#01037B")
     fig.tight_layout(rect=[0, 0, 1, 0.94])
     return save(fig, "fig3_permutation.png", src)
@@ -211,7 +226,7 @@ def fig4_backtest(bt, chk, cfg, src):
         else:
             mdd = {v: sm[f"{base}|{v}"]["net"]["mdd"] for v in VERSION}
             titles(ax, f"{title} (round-trip {b['cost_roundtrip']:.1%}, borrow {b['borrow_rate_annual']:.0%}/yr)",
-                   f"Max drawdown: executable {mdd['ban']:+.1%}, hypothetical {mdd['noban']:+.1%}.")
+                   f"Max drawdown: executable {mdd['ban']:+.1%}, hypothetical {mdd['noban']:+.1%}.", top=False)
 
     c = cv[f"{base}|noban"]
     x = pd.to_datetime(c["date"])
@@ -226,8 +241,9 @@ def fig4_backtest(bt, chk, cfg, src):
     axes[3].legend(frameon=False, fontsize=7.5, loc="best")
     runs = pd.DataFrame(chk["runs"])
     titles(axes[3], "Long side and Short side (signal-based, before costs)",
-           f"Random-label baseline ({len(runs)} runs): Long side {runs['long_side'].mean():+.1%}, Short side "
-           f"{runs['short_side'].mean():+.1%} on average, because the sample stocks as a group differed from the market.")
+           f"Random-label baseline ({'v1 engine check, ' if SRC['tag'] else ''}{len(runs)} runs): Long side {runs['long_side'].mean():+.1%}, Short side "
+           f"{runs['short_side'].mean():+.1%} on average, because the sample stocks as a group differed from the market.",
+           top=False)
     fig.tight_layout(h_pad=1.2)
     return save(fig, "fig4_backtest.png", src)
 
@@ -268,7 +284,7 @@ def fig5_checks(h2, cfg, src):
         label_ends(ax, len(cv["ban_A"]), [(cv[f"{p}_{g}"][-1], f"{g} {cv[f'{p}_{g}'][-1]:+.1%}", col)
                                           for p in (["ban"] if ax is first else ["after"]) for g, col in [("A", A), ("C", C)]])
     first.legend(frameon=False, fontsize=8, loc="best")
-    fig.suptitle("Checks (not used for the verdict)", x=0.01, y=1.06, ha="left", fontsize=10, fontweight="bold", color="#01037B")
+    fig.suptitle(SRC["title"] + "Checks (not used for the verdict)", x=0.01, y=1.06, ha="left", fontsize=10, fontweight="bold", color="#01037B")
     fig.text(0.01, 0.985, "Right two panels: cumulative abnormal return after entry, split by publication date. Reference only: "
              "labels not grouped by month × sector, no permutation test, smaller samples.", fontsize=7.5, color=INK, va="bottom")
     return save(fig, "fig5_checks.png", src)
@@ -300,7 +316,9 @@ def fig6_cap(bt, folder, cfg, src):
     ax.set_ylabel("Names held")
     ax.set_ylim(0, ax.get_ylim()[1] * 1.15)                   # 위쪽에 범례 자리를 남긴다
     ax.legend(frameon=False, fontsize=7.5, loc="upper right", ncol=2)
-    titles(ax, f"Additional analysis (added after seeing the results): per-stock cap of {cap:.0%}, {base}-day holding",
+    head = (f"Per-stock cap of {cap:.0%} (pre-specified for v2)" if SRC["tag"] else
+            f"Additional analysis (added after seeing the results): per-stock cap of {cap:.0%}")
+    titles(ax, f"{head}, {base}-day holding",
            f"Each side still gets up to {b['long_weight']:.0%}, but no single stock above {cap:.0%} of the account. "
            "The main result (fig4) has no cap.\nTop: names held per side (short-side count includes the ban period, "
            "when the executable version holds no shorts). Shaded: short-selling ban and wind-down.")
@@ -327,18 +345,20 @@ def fig6_cap(bt, folder, cfg, src):
             mdd = {v: sm[f"{base}|{v}|cap"]["net"]["mdd"] for v in VERSION}
             titles(ax, f"{title} (round-trip {b['cost_roundtrip']:.1%}, borrow {b['borrow_rate_annual']:.0%}/yr)",
                    f"Max drawdown with the cap: executable {mdd['ban']:+.1%}, hypothetical {mdd['noban']:+.1%} "
-                   f"(no cap, executable: {sm[f'{base}|ban']['net']['mdd']:+.1%}).")
+                   f"(no cap, executable: {sm[f'{base}|ban']['net']['mdd']:+.1%}).", top=False)
     fig.tight_layout(h_pad=1.2)
     return save(fig, "fig6_backtest_cap.png", src)
 
 
 if __name__ == "__main__":
     cfg = load_config()
-    require_lock()                                               # 결과 그림은 고정 뒤에만 (18장)
-    h1, s1 = latest("h1")
-    h2, s2 = latest("h2")
-    bt, s3 = latest("backtest")
-    chk, s4 = latest("engine_check")
+    tag = analysis_mode(cfg)["tag"]                              # v1 "", v2 "_pdf"
+    set_source(tag)
+    require_lock(source_path(CUTOFFS, cfg))                      # 결과 그림은 고정 뒤에만 (18장)
+    h1, s1 = latest("h1", tag)
+    h2, s2 = latest("h2", tag)
+    bt, s3 = latest("backtest", tag)
+    chk, s4 = latest("engine_check")                             # 엔진 검증은 v1 기록 그대로 (19장 백테스트)
     for path in [fig1_car(h2, f"runs/{s2}"), fig2_h1(h1, f"runs/{s1}"), fig3_permutation(h1, h2, f"runs/{s1}, runs/{s2}"),
                  fig4_backtest(bt, chk, cfg, f"runs/{s3}, runs/{s4}"), fig5_checks(h2, cfg, f"runs/{s2}"),
                  fig6_cap(bt, s3, cfg, f"runs/{s3}")]:
